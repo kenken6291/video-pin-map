@@ -68,6 +68,14 @@
   .modal-actions{display:flex; justify-content:space-between; align-items:center; margin-top:16px;}
   .modal-switch{font-size:12px; color:var(--accent); background:none; border:none; cursor:pointer; text-decoration:underline;}
 
+  .password-field{position:relative;}
+  .password-field input{padding-right:56px;}
+  .password-toggle{
+    position:absolute; right:4px; top:50%; transform:translateY(-50%);
+    background:none; border:none; font-size:11px; color:var(--accent);
+    cursor:pointer; padding:4px 8px;
+  }
+
   .leaflet-popup-content{font-size:13px; line-height:1.6; max-width:240px;}
   .leaflet-popup-content .video-link{display:inline-block; margin-top:6px; color:var(--accent); font-weight:bold; text-decoration:none;}
   .popup-nickname{font-size:12px; color:#777; margin-bottom:4px;}
@@ -133,7 +141,10 @@
     <label for="loginEmail">登録メールアドレス</label>
     <input type="email" id="loginEmail">
     <label for="loginPassword">パスワード</label>
-    <input type="password" id="loginPassword">
+    <div class="password-field">
+      <input type="password" id="loginPassword">
+      <button type="button" class="password-toggle" onclick="togglePasswordVisibility('loginPassword', this)">表示</button>
+    </div>
     <div id="loginStatus" style="font-size:12px; color:var(--danger); margin-top:8px;"></div>
     <div class="modal-actions">
       <button class="modal-switch" onclick="closeModals(); showRegister();">新規登録はこちら</button>
@@ -168,15 +179,39 @@
   </div>
 </div>
 
+<!-- ニックネーム変更モーダル -->
+<div class="modal-overlay" id="nicknameModal" style="display:none;">
+  <div class="modal-box">
+    <h2>ニックネーム変更</h2>
+    <p class="hint">既存の投稿・コメントの表示名も新しいニックネームに更新されます。</p>
+    <label for="nicknameInput">新しいニックネーム</label>
+    <input type="text" id="nicknameInput" maxlength="30">
+    <div id="nicknameStatus" style="font-size:12px; margin-top:8px;"></div>
+    <div class="modal-actions">
+      <span></span>
+      <button class="primary" onclick="doUpdateNickname()">変更する</button>
+    </div>
+    <div style="text-align:right; margin-top:8px;">
+      <button class="link-btn" onclick="closeModals()">閉じる</button>
+    </div>
+  </div>
+</div>
+
 <!-- パスワード変更モーダル(初回ログイン時は強制表示) -->
 <div class="modal-overlay" id="pwModal" style="display:none;">
   <div class="modal-box">
     <h2 id="pwModalTitle">パスワード変更</h2>
     <p class="hint" id="pwModalHint"></p>
     <label for="oldPassword">現在のパスワード</label>
-    <input type="password" id="oldPassword">
+    <div class="password-field">
+      <input type="password" id="oldPassword">
+      <button type="button" class="password-toggle" onclick="togglePasswordVisibility('oldPassword', this)">表示</button>
+    </div>
     <label for="newPassword">新しいパスワード(8文字以上)</label>
-    <input type="password" id="newPassword">
+    <div class="password-field">
+      <input type="password" id="newPassword">
+      <button type="button" class="password-toggle" onclick="togglePasswordVisibility('newPassword', this)">表示</button>
+    </div>
     <div id="pwStatus" style="font-size:12px; margin-top:8px;"></div>
     <div class="modal-actions">
       <span></span>
@@ -229,6 +264,7 @@ function renderAuthArea() {
   if (session && session.token) {
     el.innerHTML =
       `<span class="nickname">${escapeForDisplay(session.nickname)}</span> さん` +
+      `<button class="link-btn" onclick="showNicknameEdit()">ニックネーム変更</button>` +
       `<button class="link-btn" onclick="showChangePassword(false)">パスワード変更</button>` +
       `<button class="link-btn" onclick="doLogout()">ログアウト</button>`;
     formWrap.style.display = 'block';
@@ -248,19 +284,60 @@ function escapeForDisplay(s) {
 /* ==============================
    モーダル制御
    ============================== */
+function togglePasswordVisibility(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.textContent = '非表示';
+  } else {
+    input.type = 'password';
+    btn.textContent = '表示';
+  }
+}
+
 function closeModals() {
   document.getElementById('loginModal').style.display = 'none';
   document.getElementById('registerModal').style.display = 'none';
   document.getElementById('pwModal').style.display = 'none';
+  document.getElementById('nicknameModal').style.display = 'none';
+  // パスワード表示状態をリセット(モーダルを開き直した時に前回の表示状態が残らないように)
+  document.querySelectorAll('.password-field input').forEach(input => { input.type = 'password'; });
+  document.querySelectorAll('.password-toggle').forEach(btn => { btn.textContent = '表示'; });
 }
 function showLogin() { closeModals(); document.getElementById('loginModal').style.display = 'flex'; }
 function showRegister() { closeModals(); document.getElementById('registerModal').style.display = 'flex'; }
+function showNicknameEdit() {
+  closeModals();
+  document.getElementById('nicknameInput').value = session.nickname;
+  document.getElementById('nicknameStatus').textContent = '';
+  document.getElementById('nicknameModal').style.display = 'flex';
+}
 function showChangePassword(forced) {
   closeModals();
   document.getElementById('pwModalHint').textContent = forced
     ? '初回ログインです。仮パスワードから新しいパスワードに変更してください。'
     : '';
   document.getElementById('pwModal').style.display = 'flex';
+}
+
+async function doUpdateNickname() {
+  const newNickname = document.getElementById('nicknameInput').value.trim();
+  const statusEl = document.getElementById('nicknameStatus');
+  if (!newNickname) { statusEl.style.color = 'var(--danger)'; statusEl.textContent = 'ニックネームを入力してください。'; return; }
+  statusEl.style.color = '#555';
+  statusEl.textContent = '処理中...';
+
+  const data = await api('updateNickname', { token: session.token, nickname: newNickname });
+  if (data.status === 'ok') {
+    saveSession({ token: session.token, nickname: data.nickname, role: session.role });
+    statusEl.style.color = 'var(--accent)';
+    statusEl.textContent = 'ニックネームを変更しました。';
+    loadPins();
+    setTimeout(closeModals, 800);
+  } else {
+    statusEl.style.color = 'var(--danger)';
+    statusEl.textContent = data.message || '変更に失敗しました。';
+  }
 }
 
 async function doLogin() {
