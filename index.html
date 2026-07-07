@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>動画ピンマップ</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root{
+    --ink:#1f2a24;
+    --paper:#f7f5f0;
+    --line:#d8d3c6;
+    --accent:#3a6b52;
+    --accent-soft:#e7efe9;
+    --danger:#a8402f;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; font-family:"Hiragino Sans","Yu Gothic",sans-serif; color:var(--ink); background:var(--paper);}
+  header{
+    padding:12px 18px; border-bottom:1px solid var(--line);
+    display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;
+  }
+  header h1{font-size:18px; margin:0;}
+  #authArea{display:flex; align-items:center; gap:10px; font-size:13px;}
+  #authArea .nickname{font-weight:bold; color:var(--accent);}
+  button.link-btn{
+    background:none; border:1px solid var(--line); border-radius:6px;
+    padding:6px 12px; cursor:pointer; font-size:13px; color:var(--ink);
+  }
+  button.primary{
+    background:var(--accent); color:#fff; border:none; border-radius:6px;
+    padding:9px 22px; font-size:14px; cursor:pointer;
+  }
+  button.primary:disabled{background:#9fb3a8; cursor:not-allowed;}
+  button.danger{background:var(--danger); color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:12px; cursor:pointer;}
+
+  #map{width:100%; height:calc(100vh - 210px); min-height:320px;}
+
+  #panel{padding:12px 18px 18px; border-top:1px solid var(--line); background:#fff;}
+  #panel form{display:grid; grid-template-columns:1fr 1fr; gap:8px 12px; max-width:760px;}
+  #panel label{font-size:12px; color:#555; display:block; margin-bottom:2px;}
+  #panel input[type=text], #panel input[type=email], #panel input[type=password],
+  #panel input[type=url], #panel textarea{
+    width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:6px; font-size:14px; background:var(--paper);
+  }
+  #panel textarea{grid-column:1/-1; resize:vertical; min-height:56px;}
+  .full{grid-column:1/-1;}
+  .hint{font-size:12px; color:#777;}
+  #status{font-size:13px; min-height:18px;}
+  #status.error{color:var(--danger);}
+  #status.ok{color:var(--accent);}
+
+  .hp-field{position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden;}
+
+  /* モーダル(ログイン/登録/パスワード変更) */
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(0,0,0,.4);
+    display:flex; align-items:center; justify-content:center; z-index:1000;
+  }
+  .modal-box{
+    background:#fff; border-radius:10px; padding:24px; width:min(90vw, 380px);
+  }
+  .modal-box h2{margin-top:0; font-size:16px;}
+  .modal-box label{font-size:12px; color:#555; display:block; margin:10px 0 4px;}
+  .modal-box input{
+    width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:6px; font-size:14px;
+  }
+  .modal-actions{display:flex; justify-content:space-between; align-items:center; margin-top:16px;}
+  .modal-switch{font-size:12px; color:var(--accent); background:none; border:none; cursor:pointer; text-decoration:underline;}
+
+  .leaflet-popup-content{font-size:13px; line-height:1.6; max-width:240px;}
+  .leaflet-popup-content .video-link{display:inline-block; margin-top:6px; color:var(--accent); font-weight:bold; text-decoration:none;}
+  .popup-nickname{font-size:12px; color:#777; margin-bottom:4px;}
+  .popup-actions{display:flex; gap:6px; margin-top:8px;}
+
+  .comments-wrap{margin-top:10px; padding-top:8px; border-top:1px solid var(--line);}
+  .comments-title{font-size:12px; font-weight:bold; color:#555; margin-bottom:4px;}
+  .comments-list{max-height:140px; overflow-y:auto; margin-bottom:6px;}
+  .comment-row{padding:4px 0; border-bottom:1px dashed var(--line);}
+  .comment-meta{font-size:11px; color:var(--accent); font-weight:bold;}
+  .comment-body{font-size:12px; white-space:pre-wrap; word-break:break-word;}
+  .comment-actions{display:flex; gap:6px; margin-top:2px;}
+  .comment-actions button{font-size:11px; padding:2px 8px;}
+  .comment-form textarea{
+    width:100%; font-size:12px; padding:6px; border:1px solid var(--line); border-radius:6px;
+    resize:vertical; min-height:40px; margin-bottom:4px;
+  }
+  .comment-form button{font-size:12px;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>動画ピンマップ</h1>
+  <div id="authArea"></div>
+</header>
+
+<div id="map"></div>
+
+<div id="panel">
+  <div id="postFormWrap" style="display:none;">
+    <form id="postForm" autocomplete="off">
+      <div class="full">
+        <label>選択した位置</label>
+        <input type="text" id="latlngDisplay" readonly placeholder="地図上をクリックして位置を選択してください">
+      </div>
+      <div>
+        <label for="videoUrl">動画URL (YouTube / X / Instagram / TikTok)</label>
+        <input type="url" id="videoUrl" required maxlength="300" placeholder="https://youtube.com/...">
+      </div>
+      <div>
+        <label for="description">説明文(200文字まで)</label>
+      </div>
+      <textarea id="description" maxlength="200" placeholder="動画の内容や見どころを書いてください" class="full"></textarea>
+      <div class="hp-field" aria-hidden="true">
+        <label>この欄は入力しないでください</label>
+        <input type="text" id="hp" tabindex="-1" autocomplete="off">
+      </div>
+      <div class="hint full">
+        投稿することで<a href="disclaimer.html" target="_blank">免責事項</a>に同意したものとみなします。
+      </div>
+      <button type="submit" class="primary" id="submitBtn">この内容で投稿する</button>
+      <div id="status" class="full"></div>
+    </form>
+  </div>
+  <div id="loginPrompt" class="hint">投稿するには<button class="link-btn" onclick="showLogin()">ログイン</button>または<button class="link-btn" onclick="showRegister()">新規登録</button>してください。</div>
+</div>
+
+<!-- ログインモーダル -->
+<div class="modal-overlay" id="loginModal" style="display:none;">
+  <div class="modal-box">
+    <h2>ログイン</h2>
+    <label for="loginEmail">登録メールアドレス</label>
+    <input type="email" id="loginEmail">
+    <label for="loginPassword">パスワード</label>
+    <input type="password" id="loginPassword">
+    <div id="loginStatus" style="font-size:12px; color:var(--danger); margin-top:8px;"></div>
+    <div class="modal-actions">
+      <button class="modal-switch" onclick="closeModals(); showRegister();">新規登録はこちら</button>
+      <button class="primary" onclick="doLogin()">ログイン</button>
+    </div>
+    <div style="text-align:right; margin-top:8px;">
+      <button class="link-btn" onclick="closeModals()">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 新規登録モーダル -->
+<div class="modal-overlay" id="registerModal" style="display:none;">
+  <div class="modal-box">
+    <h2>新規登録</h2>
+    <label for="regEmail">メールアドレス</label>
+    <input type="email" id="regEmail">
+    <label for="regNickname">ニックネーム(地図上に表示されます)</label>
+    <input type="text" id="regNickname" maxlength="30">
+    <div class="hp-field" aria-hidden="true">
+      <label>この欄は入力しないでください</label>
+      <input type="text" id="regHp" tabindex="-1" autocomplete="off">
+    </div>
+    <div id="registerStatus" style="font-size:12px; margin-top:8px;"></div>
+    <div class="modal-actions">
+      <button class="modal-switch" onclick="closeModals(); showLogin();">ログインはこちら</button>
+      <button class="primary" onclick="doRegister()">登録する</button>
+    </div>
+    <div style="text-align:right; margin-top:8px;">
+      <button class="link-btn" onclick="closeModals()">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- パスワード変更モーダル(初回ログイン時は強制表示) -->
+<div class="modal-overlay" id="pwModal" style="display:none;">
+  <div class="modal-box">
+    <h2 id="pwModalTitle">パスワード変更</h2>
+    <p class="hint" id="pwModalHint"></p>
+    <label for="oldPassword">現在のパスワード</label>
+    <input type="password" id="oldPassword">
+    <label for="newPassword">新しいパスワード(8文字以上)</label>
+    <input type="password" id="newPassword">
+    <div id="pwStatus" style="font-size:12px; margin-top:8px;"></div>
+    <div class="modal-actions">
+      <span></span>
+      <button class="primary" onclick="doChangePassword()">変更する</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ==============================
+   設定
+   ============================== */
+const API_URL = 'https://script.google.com/macros/s/AKfycbyc1y8KtB7EO3H37HLBsMZHB7Foie6qEzyTdSyQO50PI999Za68pEOC62o47ar880nG/exec'; // デプロイ後のURLに置き換える
+
+/* ==============================
+   セッション状態(localStorageに保持)
+   ============================== */
+let session = JSON.parse(localStorage.getItem('vpm_session') || 'null');
+// session = { token, nickname, role }
+
+function saveSession(s) {
+  session = s;
+  localStorage.setItem('vpm_session', JSON.stringify(s));
+  renderAuthArea();
+}
+function clearSession() {
+  session = null;
+  localStorage.removeItem('vpm_session');
+  renderAuthArea();
+}
+
+async function api(action, payload) {
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(Object.assign({ action }, payload))
+  });
+  return res.json();
+}
+
+/* ==============================
+   認証UI描画
+   ============================== */
+function renderAuthArea() {
+  const el = document.getElementById('authArea');
+  const formWrap = document.getElementById('postFormWrap');
+  const loginPrompt = document.getElementById('loginPrompt');
+
+  if (session && session.token) {
+    el.innerHTML =
+      `<span class="nickname">${escapeForDisplay(session.nickname)}</span> さん` +
+      `<button class="link-btn" onclick="showChangePassword(false)">パスワード変更</button>` +
+      `<button class="link-btn" onclick="doLogout()">ログアウト</button>`;
+    formWrap.style.display = 'block';
+    loginPrompt.style.display = 'none';
+  } else {
+    el.innerHTML = '';
+    formWrap.style.display = 'none';
+    loginPrompt.style.display = 'block';
+  }
+}
+function escapeForDisplay(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+/* ==============================
+   モーダル制御
+   ============================== */
+function closeModals() {
+  document.getElementById('loginModal').style.display = 'none';
+  document.getElementById('registerModal').style.display = 'none';
+  document.getElementById('pwModal').style.display = 'none';
+}
+function showLogin() { closeModals(); document.getElementById('loginModal').style.display = 'flex'; }
+function showRegister() { closeModals(); document.getElementById('registerModal').style.display = 'flex'; }
+function showChangePassword(forced) {
+  closeModals();
+  document.getElementById('pwModalHint').textContent = forced
+    ? '初回ログインです。仮パスワードから新しいパスワードに変更してください。'
+    : '';
+  document.getElementById('pwModal').style.display = 'flex';
+}
+
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const statusEl = document.getElementById('loginStatus');
+  statusEl.textContent = 'ログイン中...';
+
+  const data = await api('login', { email, password });
+  if (data.status === 'ok') {
+    saveSession({ token: data.token, nickname: data.nickname, role: data.role });
+    closeModals();
+    if (data.mustChangePassword) showChangePassword(true);
+    loadPins();
+  } else {
+    statusEl.textContent = data.message || 'ログインに失敗しました。';
+  }
+}
+
+async function doRegister() {
+  const email = document.getElementById('regEmail').value.trim();
+  const nickname = document.getElementById('regNickname').value.trim();
+  const hp = document.getElementById('regHp').value;
+  const statusEl = document.getElementById('registerStatus');
+  statusEl.className = ''; statusEl.textContent = '登録中...';
+
+  const data = await api('register', { email, nickname, hp });
+  if (data.status === 'ok') {
+    statusEl.style.color = 'var(--accent)';
+    statusEl.textContent = data.message + ' メール内の仮パスワードでログインしてください。';
+  } else {
+    statusEl.style.color = 'var(--danger)';
+    statusEl.textContent = data.message || '登録に失敗しました。';
+  }
+}
+
+async function doLogout() {
+  if (session && session.token) await api('logout', { token: session.token });
+  clearSession();
+}
+
+async function doChangePassword() {
+  const oldPassword = document.getElementById('oldPassword').value;
+  const newPassword = document.getElementById('newPassword').value;
+  const statusEl = document.getElementById('pwStatus');
+  statusEl.textContent = '処理中...';
+
+  const data = await api('changePassword', { token: session.token, oldPassword, newPassword });
+  if (data.status === 'ok') {
+    statusEl.style.color = 'var(--accent)';
+    statusEl.textContent = 'パスワードを変更しました。安全のため再度ログインしてください。';
+    // パスワード変更時はサーバー側で全セッションが無効化されるため、フロントのセッションも破棄する
+    clearSession();
+    setTimeout(() => { closeModals(); showLogin(); }, 1200);
+  } else {
+    statusEl.style.color = 'var(--danger)';
+    statusEl.textContent = data.message || '変更に失敗しました。';
+  }
+}
+
+/* ==============================
+   地図
+   ============================== */
+const map = L.map('map').setView([35.681236, 139.767125], 13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors', maxZoom: 19
+}).addTo(map);
+
+let selectedLatLng = null;
+let selectionMarker = null;
+map.on('click', (e) => {
+  selectedLatLng = e.latlng;
+  document.getElementById('latlngDisplay').value = `緯度 ${e.latlng.lat.toFixed(5)} / 経度 ${e.latlng.lng.toFixed(5)}`;
+  if (selectionMarker) selectionMarker.setLatLng(e.latlng);
+  else selectionMarker = L.marker(e.latlng, { opacity: 0.7 }).addTo(map);
+});
+
+function toYoutubeEmbed(url) {
+  try {
+    const u = new URL(url);
+    let id = null;
+    if (u.hostname.includes('youtu.be')) id = u.pathname.slice(1);
+    else if (u.hostname.includes('youtube.com')) id = u.searchParams.get('v');
+    return id ? `https://www.youtube.com/embed/${id}` : null;
+  } catch (e) { return null; }
+}
+
+async function loadPins() {
+  try {
+    const res = await fetch(API_URL, { method: 'GET' });
+    const data = await res.json();
+    if (data.status !== 'ok') return;
+
+    // 既存マーカーをクリア(ログイン状態変化で編集ボタン表示を切替えるため再描画)
+    map.eachLayer(layer => { if (layer instanceof L.Marker && layer !== selectionMarker) map.removeLayer(layer); });
+
+    data.pins.forEach(pin => {
+      const marker = L.marker([pin.lat, pin.lng]).addTo(map);
+      const container = buildPopupContent(pin);
+      marker.bindPopup(container, { maxWidth: 260 });
+    });
+  } catch (e) {
+    console.error('ピンの読み込みに失敗しました', e);
+  }
+}
+
+function buildPopupContent(pin) {
+  const container = document.createElement('div');
+
+  const nick = document.createElement('div');
+  nick.className = 'popup-nickname';
+  nick.textContent = '投稿者: ' + pin.nickname;
+  container.appendChild(nick);
+
+  const embedUrl = toYoutubeEmbed(pin.videoUrl);
+  if (embedUrl) {
+    const iframe = document.createElement('iframe');
+    iframe.width = '220'; iframe.height = '124'; iframe.style.border = '0';
+    iframe.src = embedUrl; iframe.setAttribute('allowfullscreen', '');
+    container.appendChild(iframe);
+  }
+
+  const desc = document.createElement('div');
+  desc.textContent = pin.description; // textContentで安全に挿入
+  container.appendChild(desc);
+
+  const link = document.createElement('a');
+  link.href = pin.videoUrl; link.target = '_blank'; link.rel = 'noopener noreferrer';
+  link.className = 'video-link'; link.textContent = '投稿元を見る ↗';
+  container.appendChild(link);
+
+  // 編集・削除ボタン(表示はログイン中の全員に出し、権限はサーバー側で最終判定)
+  const actions = document.createElement('div');
+  actions.className = 'popup-actions';
+  const editBtn = document.createElement('button');
+  editBtn.textContent = '編集'; editBtn.className = 'link-btn';
+  editBtn.onclick = () => editPost(pin);
+  const delBtn = document.createElement('button');
+  delBtn.textContent = '削除'; delBtn.className = 'danger';
+  delBtn.onclick = () => deletePost(pin.postId);
+  if (session && session.token) {
+    actions.appendChild(editBtn);
+    actions.appendChild(delBtn);
+    container.appendChild(actions);
+  }
+
+  // ---- コメント欄 ----
+  const commentsWrap = document.createElement('div');
+  commentsWrap.className = 'comments-wrap';
+
+  const commentsTitle = document.createElement('div');
+  commentsTitle.className = 'comments-title';
+  commentsTitle.textContent = `コメント (${pin.comments.length})`;
+  commentsWrap.appendChild(commentsTitle);
+
+  const list = document.createElement('div');
+  list.className = 'comments-list';
+  pin.comments.forEach(c => list.appendChild(buildCommentRow(c, pin.postId)));
+  commentsWrap.appendChild(list);
+
+  if (session && session.token) {
+    const form = document.createElement('div');
+    form.className = 'comment-form';
+    const textarea = document.createElement('textarea');
+    textarea.maxLength = 300;
+    textarea.placeholder = 'コメントを入力...';
+    const btn = document.createElement('button');
+    btn.className = 'link-btn';
+    btn.textContent = 'コメントする';
+    btn.onclick = async () => {
+      const text = textarea.value.trim();
+      if (!text) return;
+      btn.disabled = true;
+      const data = await api('addComment', { token: session.token, postId: pin.postId, comment: text });
+      btn.disabled = false;
+      if (data.status === 'ok') { loadPins(); }
+      else alert(data.message || 'コメントの投稿に失敗しました。');
+    };
+    form.appendChild(textarea);
+    form.appendChild(btn);
+    commentsWrap.appendChild(form);
+  } else {
+    const hint = document.createElement('div');
+    hint.className = 'hint';
+    hint.textContent = 'コメントするにはログインしてください。';
+    commentsWrap.appendChild(hint);
+  }
+
+  container.appendChild(commentsWrap);
+  return container;
+}
+
+function buildCommentRow(c, postId) {
+  const row = document.createElement('div');
+  row.className = 'comment-row';
+
+  const meta = document.createElement('div');
+  meta.className = 'comment-meta';
+  meta.textContent = c.nickname;
+  row.appendChild(meta);
+
+  const body = document.createElement('div');
+  body.className = 'comment-body';
+  body.textContent = c.comment; // textContentで安全に挿入
+  row.appendChild(body);
+
+  if (session && session.token) {
+    const actions = document.createElement('div');
+    actions.className = 'comment-actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.textContent = '編集'; editBtn.className = 'link-btn';
+    editBtn.onclick = async () => {
+      const newText = prompt('コメントを編集', c.comment);
+      if (newText === null) return;
+      const data = await api('updateComment', { token: session.token, commentId: c.commentId, comment: newText });
+      if (data.status === 'ok') loadPins();
+      else alert(data.message || '編集に失敗しました(権限がない可能性があります)');
+    };
+
+    const delBtn = document.createElement('button');
+    delBtn.textContent = '削除'; delBtn.className = 'danger';
+    delBtn.onclick = async () => {
+      if (!confirm('このコメントを削除しますか?')) return;
+      const data = await api('deleteComment', { token: session.token, commentId: c.commentId });
+      if (data.status === 'ok') loadPins();
+      else alert(data.message || '削除に失敗しました(権限がない可能性があります)');
+    };
+
+    actions.appendChild(editBtn);
+    actions.appendChild(delBtn);
+    row.appendChild(actions);
+  }
+
+  return row;
+}
+
+async function editPost(pin) {
+  const newUrl = prompt('動画URLを編集', pin.videoUrl);
+  if (newUrl === null) return;
+  const newDesc = prompt('説明文を編集(200文字まで)', pin.description);
+  if (newDesc === null) return;
+
+  const data = await api('updatePost', { token: session.token, postId: pin.postId, videoUrl: newUrl, description: newDesc });
+  if (data.status === 'ok') loadPins();
+  else alert(data.message || '編集に失敗しました(権限がない可能性があります)');
+}
+
+async function deletePost(postId) {
+  if (!confirm('この投稿を削除しますか?')) return;
+  const data = await api('deletePost', { token: session.token, postId });
+  if (data.status === 'ok') loadPins();
+  else alert(data.message || '削除に失敗しました(権限がない可能性があります)');
+}
+
+/* ==============================
+   投稿フォーム送信
+   ============================== */
+const form = document.getElementById('postForm');
+const statusEl = document.getElementById('status');
+const submitBtn = document.getElementById('submitBtn');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  statusEl.textContent = ''; statusEl.className = '';
+
+  if (!session || !session.token) {
+    statusEl.textContent = 'ログインしてください。'; statusEl.className = 'error'; return;
+  }
+  if (!selectedLatLng) {
+    statusEl.textContent = '地図をクリックして位置を選択してください。'; statusEl.className = 'error'; return;
+  }
+
+  const videoUrl = document.getElementById('videoUrl').value.trim();
+  const description = document.getElementById('description').value.trim();
+  const hp = document.getElementById('hp').value;
+
+  submitBtn.disabled = true;
+  statusEl.textContent = '送信中...';
+
+  const data = await api('createPost', {
+    token: session.token, lat: selectedLatLng.lat, lng: selectedLatLng.lng, videoUrl, description, hp
+  });
+
+  if (data.status === 'ok') {
+    statusEl.textContent = '投稿しました。'; statusEl.className = 'ok';
+    form.reset();
+    if (selectionMarker) { map.removeLayer(selectionMarker); selectionMarker = null; }
+    selectedLatLng = null;
+    loadPins();
+  } else {
+    statusEl.textContent = data.message || (data.message === 'session expired. please login again.' ? 'セッションが切れました。再ログインしてください。' : '投稿に失敗しました。');
+    statusEl.className = 'error';
+    if (data.message && data.message.indexOf('session') !== -1) clearSession();
+  }
+  submitBtn.disabled = false;
+});
+
+/* ==============================
+   初期化
+   ============================== */
+renderAuthArea();
+loadPins();
+</script>
+</body>
+</html>
