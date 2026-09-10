@@ -121,15 +121,15 @@
         <input type="text" id="latlngDisplay" readonly placeholder="地図上をクリックして位置を選択してください">
       </div>
       <div>
-        <label for="videoUrl">動画URL (YouTube / X / Instagram / TikTok)</label>
-        <input type="url" id="videoUrl" required maxlength="300" placeholder="https://youtube.com/...">
+        <label for="videoUrl">動画URL (YouTube / X / Instagram / TikTok)(写真のみの場合は空でも可)</label>
+        <input type="url" id="videoUrl" maxlength="300" placeholder="https://youtube.com/...">
       </div>
       <div>
         <label for="description">説明文(200文字まで)</label>
       </div>
       <textarea id="description" maxlength="200" placeholder="動画の内容や見どころを書いてください" class="full"></textarea>
       <div class="full">
-        <label for="photoInput">写真(任意・自動で適正サイズに縮小されます)</label>
+        <label for="photoInput">写真(動画URLが無い場合は必須・自動で適正サイズに縮小されます)</label>
         <input type="file" id="photoInput" accept="image/*">
         <div id="photoPreviewWrap">
           <img id="photoPreview" alt="選択した写真のプレビュー">
@@ -651,9 +651,11 @@ function buildPopupContent(pin) {
   container.appendChild(desc);
 
   const link = document.createElement('a');
-  link.href = pin.videoUrl; link.target = '_blank'; link.rel = 'noopener noreferrer';
-  link.className = 'video-link'; link.textContent = '投稿元を見る ↗';
-  container.appendChild(link);
+  if (pin.videoUrl) {
+    link.href = pin.videoUrl; link.target = '_blank'; link.rel = 'noopener noreferrer';
+    link.className = 'video-link'; link.textContent = '投稿元を見る ↗';
+    container.appendChild(link);
+  }
 
   // 編集・削除ボタン(表示はログイン中の全員に出し、権限はサーバー側で最終判定)
   const actions = document.createElement('div');
@@ -800,6 +802,10 @@ form.addEventListener('submit', async (e) => {
   const videoUrl = document.getElementById('videoUrl').value.trim();
   const description = document.getElementById('description').value.trim();
   const hp = document.getElementById('hp').value;
+
+  if (!videoUrl && !selectedPhotoDataUrl) {
+    statusEl.textContent = '動画URLまたは写真のどちらかを入力してください。'; statusEl.className = 'error'; return;
+  }
 
   submitBtn.disabled = true;
   statusEl.textContent = '送信中...';
