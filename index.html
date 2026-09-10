@@ -261,13 +261,32 @@ function clearSession() {
   renderAuthArea();
 }
 
-async function api(action, payload) {
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify(Object.assign({ action }, payload))
-  });
-  return res.json();
+async function api(action, payload, timeoutMs = 45000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(Object.assign({ action }, payload)),
+      signal: controller.signal
+    });
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch (parseErr) {
+      console.error('APIレスポンスの解析に失敗しました', text);
+      return { status: 'error', message: 'サーバーの応答が不正でした。時間をおいて再度お試しください。' };
+    }
+  } catch (err) {
+    console.error('API通信エラー', err);
+    if (err.name === 'AbortError') {
+      return { status: 'error', message: '通信がタイムアウトしました。電波状況を確認するか、写真を選び直して再度お試しください。' };
+    }
+    return { status: 'error', message: '通信エラーが発生しました。時間をおいて再度お試しください。' };
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 /* ==============================
