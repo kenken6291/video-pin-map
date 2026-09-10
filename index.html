@@ -52,6 +52,14 @@
 
   .hp-field{position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden;}
 
+  #photoPreviewWrap{display:none; align-items:center; gap:10px; margin-top:4px;}
+  #photoPreview{max-width:120px; max-height:120px; border-radius:6px; border:1px solid var(--line); display:block;}
+  #photoRemoveBtn{font-size:12px;}
+  .photo-processing{font-size:12px; color:#777;}
+
+  .popup-photo{margin-top:6px;}
+  .popup-photo img{max-width:220px; max-height:220px; border-radius:6px; display:block; cursor:zoom-in;}
+
   /* モーダル(ログイン/登録/パスワード変更) */
   .modal-overlay{
     position:fixed; inset:0; background:rgba(0,0,0,.4);
@@ -120,6 +128,15 @@
         <label for="description">説明文(200文字まで)</label>
       </div>
       <textarea id="description" maxlength="200" placeholder="動画の内容や見どころを書いてください" class="full"></textarea>
+      <div class="full">
+        <label for="photoInput">写真(任意・自動で適正サイズに縮小されます)</label>
+        <input type="file" id="photoInput" accept="image/*">
+        <div id="photoPreviewWrap">
+          <img id="photoPreview" alt="選択した写真のプレビュー">
+          <button type="button" class="link-btn" id="photoRemoveBtn" onclick="clearSelectedPhoto()">写真を削除</button>
+        </div>
+        <div class="photo-processing" id="photoProcessing"></div>
+      </div>
       <div class="hp-field" aria-hidden="true">
         <label>この欄は入力しないでください</label>
         <input type="text" id="hp" tabindex="-1" autocomplete="off">
@@ -415,6 +432,163 @@ map.on('click', (e) => {
   else selectionMarker = L.marker(e.latlng, { opacity: 0.7 }).addTo(map);
 });
 
+/* ==============================
+   写真選択・自動リサイズ
+   ============================== */
+let selectedPhotoDataUrl = null; // リサイズ後のJPEG data URL(送信用)
+const MAX_ORIGINAL_PHOTO_BYTES = 20 * 1024 * 1024; // 20MB(選択直後の元ファイルサイズの上限)
+const TARGET_PHOTO_BYTES = 700 * 1024; // 送信data URLの目標上限(約700KB)
+
+const photoInput = document.getElementById('photoInput');
+const photoPreviewWrap = document.getElementById('photoPreviewWrap');
+const photoPreview = document.getElementById('photoPreview');
+const photoProcessing = document.getElementById('photoProcessing');
+
+photoInput.addEventListener('change', async () => {
+  const file = photoInput.files && photoInput.files[0];
+  if (!file) return;
+
+  if (!file.type.startsWith('image/')) {
+    photoProcessing.textContent = '画像ファイルを選択してください。';
+    photoInput.value = '';
+    return;
+  }
+  if (file.size > MAX_ORIGINAL_PHOTO_BYTES) {
+    photoProcessing.textContent = 'ファイルサイズが大きすぎます(20MBまで)。';
+    photoInput.value = '';
+    return;
+  }
+
+  photoProcessing.textContent = '写真を処理しています...';
+  try {
+    selectedPhotoDataUrl = await resizeImageToDataUrl(file);
+    photoPreview.src = selectedPhotoDataUrl;
+    photoPreviewWrap.style.display = 'flex';
+    photoProcessing.textContent = '';
+  } catch (e) {
+    console.error('写真の処理に失敗しました', e);
+    photoProcessing.textContent = '写真の処理に失敗しました。別の写真をお試しください。';
+    selectedPhotoDataUrl = null;
+  }
+});
+
+function clearSelectedPhoto() {
+  selectedPhotoDataUrl = null;
+  photoInput.value = '';
+  photoPreviewWrap.style.display = 'none';
+  photoPreview.src = '';
+  photoProcessing.textContent = '';
+}
+
+// ファイルをJPEGに変換しつつ、長辺1280px程度・約700KB以下を目安に段階的に縮小する
+async function resizeImageToDataUrl(file) {
+  const [dataUrl, orientation] = await Promise.all([readFileAsDataUrl(file), getExifOrientation(file)]);
+  const img = await loadImage(dataUrl);
+
+  let maxDim = 1280;
+  let quality = 0.82;
+  let result = drawResizedJpeg(img, orientation, maxDim, quality);
+
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const approxBytes = Math.ceil(result.length * 3 / 4);
+    if (approxBytes <= TARGET_PHOTO_BYTES || (maxDim <= 640 && quality <= 0.5)) break;
+    quality = Math.max(0.5, quality - 0.15);
+    maxDim = Math.max(640, Math.round(maxDim * 0.85));
+    result = drawResizedJpeg(img, orientation, maxDim, quality);
+  }
+  return result;
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target.result);
+    reader.onerror = () => reject(new Error('file read failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('image load failed'));
+    img.src = src;
+  });
+}
+
+// スマートフォン写真の向き情報(EXIF Orientation)を読み取る。取得できない場合は1(補正なし)を返す。
+function getExifOrientation(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const view = new DataView(e.target.result);
+        if (view.getUint16(0, false) !== 0xFFD8) { resolve(1); return; }
+        const length = view.byteLength;
+        let offset = 2;
+        while (offset < length) {
+          const marker = view.getUint16(offset, false);
+          offset += 2;
+          if (marker === 0xFFE1) {
+            if (view.getUint32(offset + 2, false) !== 0x45786966) { resolve(1); return; }
+            const tiffOffset = offset + 8;
+            const little = view.getUint16(tiffOffset, false) === 0x4949;
+            const firstIFDOffset = view.getUint32(tiffOffset + 4, little);
+            let ifdOffset = tiffOffset + firstIFDOffset;
+            const tags = view.getUint16(ifdOffset, little);
+            ifdOffset += 2;
+            for (let i = 0; i < tags; i++) {
+              const tagOffset = ifdOffset + i * 12;
+              if (view.getUint16(tagOffset, little) === 0x0112) {
+                resolve(view.getUint16(tagOffset + 8, little));
+                return;
+              }
+            }
+            resolve(1); return;
+          } else if ((marker & 0xFF00) !== 0xFF00) {
+            break;
+          } else {
+            offset += view.getUint16(offset, false);
+          }
+        }
+      } catch (e) { /* パース失敗時は補正なしにフォールバック */ }
+      resolve(1);
+    };
+    reader.onerror = () => resolve(1);
+    reader.readAsArrayBuffer(file.slice(0, 128 * 1024));
+  });
+}
+
+function drawResizedJpeg(img, orientation, maxDim, quality) {
+  let width = img.naturalWidth || img.width;
+  let height = img.naturalHeight || img.height;
+  if (width > maxDim || height > maxDim) {
+    if (width > height) { height = Math.round(height * maxDim / width); width = maxDim; }
+    else { width = Math.round(width * maxDim / height); height = maxDim; }
+  }
+
+  const swap = orientation >= 5 && orientation <= 8;
+  const canvas = document.createElement('canvas');
+  canvas.width = swap ? height : width;
+  canvas.height = swap ? width : height;
+  const ctx = canvas.getContext('2d');
+
+  switch (orientation) {
+    case 2: ctx.transform(-1, 0, 0, 1, canvas.width, 0); break;
+    case 3: ctx.transform(-1, 0, 0, -1, canvas.width, canvas.height); break;
+    case 4: ctx.transform(1, 0, 0, -1, 0, canvas.height); break;
+    case 5: ctx.transform(0, 1, 1, 0, 0, 0); break;
+    case 6: ctx.transform(0, 1, -1, 0, canvas.height, 0); break;
+    case 7: ctx.transform(0, -1, -1, 0, canvas.height, canvas.width); break;
+    case 8: ctx.transform(0, -1, 1, 0, 0, canvas.width); break;
+    default: break;
+  }
+
+  ctx.drawImage(img, 0, 0, width, height);
+  return canvas.toDataURL('image/jpeg', quality);
+}
+
 function toYoutubeEmbed(url) {
   try {
     const u = new URL(url);
@@ -458,6 +632,18 @@ function buildPopupContent(pin) {
     iframe.width = '220'; iframe.height = '124'; iframe.style.border = '0';
     iframe.src = embedUrl; iframe.setAttribute('allowfullscreen', '');
     container.appendChild(iframe);
+  }
+
+  if (pin.photoUrl) {
+    const photoWrap = document.createElement('div');
+    photoWrap.className = 'popup-photo';
+    const photoImg = document.createElement('img');
+    photoImg.src = pin.photoUrl;
+    photoImg.alt = '投稿された写真';
+    photoImg.loading = 'lazy';
+    photoImg.onclick = () => window.open(pin.photoUrl, '_blank', 'noopener');
+    photoWrap.appendChild(photoImg);
+    container.appendChild(photoWrap);
   }
 
   const desc = document.createElement('div');
@@ -619,12 +805,14 @@ form.addEventListener('submit', async (e) => {
   statusEl.textContent = '送信中...';
 
   const data = await api('createPost', {
-    token: session.token, lat: selectedLatLng.lat, lng: selectedLatLng.lng, videoUrl, description, hp
+    token: session.token, lat: selectedLatLng.lat, lng: selectedLatLng.lng, videoUrl, description, hp,
+    photoBase64: selectedPhotoDataUrl || undefined
   });
 
   if (data.status === 'ok') {
     statusEl.textContent = '投稿しました。'; statusEl.className = 'ok';
     form.reset();
+    clearSelectedPhoto();
     if (selectionMarker) { map.removeLayer(selectionMarker); selectionMarker = null; }
     selectedLatLng = null;
     loadPins();
