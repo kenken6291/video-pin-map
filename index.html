@@ -50,6 +50,12 @@
   #status.error{color:var(--danger);}
   #status.ok{color:var(--accent);}
 
+  .latlng-row{display:flex; gap:8px; flex-wrap:wrap;}
+  .latlng-row input{flex:1 1 140px; min-width:120px;}
+  .latlng-row button{flex:0 0 auto;}
+  #latlngMsg.error{color:var(--danger);}
+  #latlngMsg.ok{color:var(--accent);}
+
   .hp-field{position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden;}
 
   #photoPreviewWrap{display:none; align-items:center; gap:10px; margin-top:4px;}
@@ -117,8 +123,14 @@
   <div id="postFormWrap" style="display:none;">
     <form id="postForm" autocomplete="off">
       <div class="full">
-        <label>選択した位置</label>
-        <input type="text" id="latlngDisplay" readonly placeholder="地図上をクリックして位置を選択してください">
+        <label>位置(地図をクリック、または緯度・経度を入力して「この位置を指定」)</label>
+        <div class="latlng-row">
+          <input type="text" id="latInput" inputmode="decimal" placeholder="緯度 例: 35.68124">
+          <input type="text" id="lngInput" inputmode="decimal" placeholder="経度 例: 139.76712">
+          <button type="button" class="link-btn" id="latlngApplyBtn">この位置を指定</button>
+        </div>
+        <div class="hint">Googleマップ等でコピーした「35.68124, 139.76712」の形式を緯度欄に貼り付けても自動で分けて入力されます。</div>
+        <div class="hint" id="latlngMsg"></div>
       </div>
       <div>
         <label for="videoUrl">動画URL (YouTube / X / Instagram / TikTok)(写真のみの場合は空でも可)</label>
@@ -444,11 +456,75 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 let selectedLatLng = null;
 let selectionMarker = null;
+const latInput = document.getElementById('latInput');
+const lngInput = document.getElementById('lngInput');
+const latlngMsg = document.getElementById('latlngMsg');
+
+function setLatlngMsg(text, cls) {
+  latlngMsg.textContent = text || '';
+  latlngMsg.className = 'hint' + (cls ? ' ' + cls : '');
+}
+
+// 位置を確定(地図クリック・数値入力の共通処理)
+function setSelectedLocation(lat, lng, panTo) {
+  const latlng = L.latLng(lat, lng);
+  selectedLatLng = latlng;
+  latInput.value = lat.toFixed(5);
+  lngInput.value = lng.toFixed(5);
+  if (selectionMarker) selectionMarker.setLatLng(latlng);
+  else selectionMarker = L.marker(latlng, { opacity: 0.7 }).addTo(map);
+  if (panTo) map.setView(latlng, Math.max(map.getZoom(), 15));
+}
+
+// 全角数字・全角記号を半角に
+function toHalfWidth(str) {
+  return String(str)
+    .replace(/[０-９．－，＋]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+    .replace(/[、　]/g, ch => ch === '、' ? ',' : ' ')
+    .replace(/[ー−–—]/g, '-')
+    .trim();
+}
+
+// 「35.68, 139.76」「35.68 139.76」形式を分解
+function splitLatLngText(text) {
+  const m = toHalfWidth(text).match(/^\s*([-+]?\d+(?:\.\d+)?)\s*[,\s]\s*([-+]?\d+(?:\.\d+)?)\s*$/);
+  return m ? { lat: m[1], lng: m[2] } : null;
+}
+
+// 緯度欄に「緯度, 経度」を貼り付けたら自動で分割
+latInput.addEventListener('input', () => {
+  const pair = splitLatLngText(latInput.value);
+  if (pair) {
+    latInput.value = pair.lat;
+    lngInput.value = pair.lng;
+  }
+});
+
+function applyLatLngInput() {
+  const latStr = toHalfWidth(latInput.value);
+  const lngStr = toHalfWidth(lngInput.value);
+  if (!latStr || !lngStr) {
+    setLatlngMsg('緯度と経度の両方を入力してください。', 'error'); return;
+  }
+  const numRe = /^[-+]?\d+(\.\d+)?$/;
+  if (!numRe.test(latStr) || !numRe.test(lngStr)) {
+    setLatlngMsg('緯度・経度は数値で入力してください(例: 35.68124)。', 'error'); return;
+  }
+  const lat = Number(latStr), lng = Number(lngStr);
+  if (lat < -90 || lat > 90) { setLatlngMsg('緯度は -90 〜 90 の範囲で入力してください。', 'error'); return; }
+  if (lng < -180 || lng > 180) { setLatlngMsg('経度は -180 〜 180 の範囲で入力してください。', 'error'); return; }
+  setSelectedLocation(lat, lng, true);
+  setLatlngMsg('位置を指定しました。', 'ok');
+}
+
+document.getElementById('latlngApplyBtn').addEventListener('click', applyLatLngInput);
+[latInput, lngInput].forEach(el => el.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); applyLatLngInput(); }
+}));
+
 map.on('click', (e) => {
-  selectedLatLng = e.latlng;
-  document.getElementById('latlngDisplay').value = `緯度 ${e.latlng.lat.toFixed(5)} / 経度 ${e.latlng.lng.toFixed(5)}`;
-  if (selectionMarker) selectionMarker.setLatLng(e.latlng);
-  else selectionMarker = L.marker(e.latlng, { opacity: 0.7 }).addTo(map);
+  setSelectedLocation(e.latlng.lat, e.latlng.lng, false);
+  setLatlngMsg('');
 });
 
 /* ==============================
@@ -815,7 +891,7 @@ form.addEventListener('submit', async (e) => {
     statusEl.textContent = 'ログインしてください。'; statusEl.className = 'error'; return;
   }
   if (!selectedLatLng) {
-    statusEl.textContent = '地図をクリックして位置を選択してください。'; statusEl.className = 'error'; return;
+    statusEl.textContent = '地図をクリックするか、緯度・経度を入力して「この位置を指定」を押してください。'; statusEl.className = 'error'; return;
   }
 
   const videoUrl = document.getElementById('videoUrl').value.trim();
@@ -840,6 +916,7 @@ form.addEventListener('submit', async (e) => {
     clearSelectedPhoto();
     if (selectionMarker) { map.removeLayer(selectionMarker); selectionMarker = null; }
     selectedLatLng = null;
+    setLatlngMsg('');
     loadPins();
   } else {
     statusEl.textContent = data.message || (data.message === 'session expired. please login again.' ? 'セッションが切れました。再ログインしてください。' : '投稿に失敗しました。');
