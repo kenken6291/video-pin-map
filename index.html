@@ -1,936 +1,2118 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MapTube</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>くるま旅マップ | 車中泊・キャンプスポット共有マップ</title>
+<meta name="description" content="車中泊・キャンプスポットをみんなで共有するオープンなマップ。データはGitHubで管理しています。" />
+
+<!-- Leaflet (APIキー不要・オープンソース) -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+<!-- Leaflet.markercluster（大量スポットでも地図描画を軽快にするクラスタリング） -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
+
+<!-- Tailwind CSS (CDN) -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Fonts: 丸ゴシック（道路標識的な親しみ）＋ 本文用 -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700;900&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          pine:    '#16352B',  // 深い松の緑（基調）
+          pinedim: '#2C5446',
+          mist:    '#F2F5F1',  // 朝靄の白
+          lantern: '#E8A33D',  // ランタンの灯（アクセント）
+          nightsky:'#0E1F1A',
+        },
+        fontFamily: {
+          maru: ['"Zen Maru Gothic"', 'sans-serif'],
+          body: ['"Noto Sans JP"', 'sans-serif'],
+        },
+      }
+    }
+  }
+</script>
+
 <style>
-  :root{
-    --ink:#1f2a24;
-    --paper:#f7f5f0;
-    --line:#d8d3c6;
-    --accent:#3a6b52;
-    --accent-soft:#e7efe9;
-    --danger:#a8402f;
-  }
-  *{box-sizing:border-box;}
-  body{margin:0; font-family:"Hiragino Sans","Yu Gothic",sans-serif; color:var(--ink); background:var(--paper);}
-  header{
-    padding:12px 18px; border-bottom:1px solid var(--line);
-    display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;
-  }
-  header h1{font-size:18px; margin:0;}
-  #authArea{display:flex; align-items:center; gap:10px; font-size:13px;}
-  #authArea .nickname{font-weight:bold; color:var(--accent);}
-  button.link-btn{
-    background:none; border:1px solid var(--line); border-radius:6px;
-    padding:6px 12px; cursor:pointer; font-size:13px; color:var(--ink);
-  }
-  button.primary{
-    background:var(--accent); color:#fff; border:none; border-radius:6px;
-    padding:9px 22px; font-size:14px; cursor:pointer;
-  }
-  button.primary:disabled{background:#9fb3a8; cursor:not-allowed;}
-  button.danger{background:var(--danger); color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:12px; cursor:pointer;}
+  html, body { height: 100%; margin: 0; overscroll-behavior: none; }
+  body { font-family: 'Noto Sans JP', sans-serif; }
+  #map { width: 100%; height: 100%; background: #DCE6DE; }
 
-  #map{width:100%; height:calc(100vh - 210px); min-height:320px;}
-
-  #panel{padding:12px 18px 18px; border-top:1px solid var(--line); background:#fff;}
-  #panel form{display:grid; grid-template-columns:1fr 1fr; gap:8px 12px; max-width:760px;}
-  #panel label{font-size:12px; color:#555; display:block; margin-bottom:2px;}
-  #panel input[type=text], #panel input[type=email], #panel input[type=password],
-  #panel input[type=url], #panel textarea{
-    width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:6px; font-size:14px; background:var(--paper);
+  /* ===== カスタムピン（ティアドロップ型バッジ） ===== */
+  .pin {
+    width: 34px; height: 34px;
+    border-radius: 50% 50% 50% 4px;
+    transform: rotate(-45deg);
+    border: 3px solid #fff;
+    box-shadow: 0 3px 8px rgba(14,31,26,.35);
+    display: flex; align-items: center; justify-content: center;
+    transition: transform .15s ease;
   }
-  #panel textarea{grid-column:1/-1; resize:vertical; min-height:56px;}
-  .full{grid-column:1/-1;}
-  .hint{font-size:12px; color:#777;}
-  #status{font-size:13px; min-height:18px;}
-  #status.error{color:var(--danger);}
-  #status.ok{color:var(--accent);}
-
-  .latlng-row{display:flex; gap:8px; flex-wrap:wrap;}
-  .latlng-row input{flex:1 1 140px; min-width:120px;}
-  .latlng-row button{flex:0 0 auto;}
-  #latlngMsg.error{color:var(--danger);}
-  #latlngMsg.ok{color:var(--accent);}
-
-  .hp-field{position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden;}
-
-  #photoPreviewWrap{display:none; align-items:center; gap:10px; margin-top:4px;}
-  #photoPreview{max-width:120px; max-height:120px; border-radius:6px; border:1px solid var(--line); display:block;}
-  #photoRemoveBtn{font-size:12px;}
-  .photo-processing{font-size:12px; color:#777;}
-
-  .popup-photo{margin-top:6px;}
-  .popup-photo img{max-width:220px; max-height:220px; border-radius:6px; display:block; cursor:zoom-in;}
-
-  /* モーダル(ログイン/登録/パスワード変更) */
-  .modal-overlay{
-    position:fixed; inset:0; background:rgba(0,0,0,.4);
-    display:flex; align-items:center; justify-content:center; z-index:1000;
+  .pin span {
+    transform: rotate(45deg);
+    font-size: 15px; line-height: 1;
+    filter: drop-shadow(0 1px 1px rgba(0,0,0,.2));
   }
-  .modal-box{
-    background:#fff; border-radius:10px; padding:24px; width:min(90vw, 380px);
-  }
-  .modal-box h2{margin-top:0; font-size:16px;}
-  .modal-box label{font-size:12px; color:#555; display:block; margin:10px 0 4px;}
-  .modal-box input{
-    width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:6px; font-size:14px;
-  }
-  .modal-actions{display:flex; justify-content:space-between; align-items:center; margin-top:16px;}
-  .modal-switch{font-size:12px; color:var(--accent); background:none; border:none; cursor:pointer; text-decoration:underline;}
+  .leaflet-marker-icon:hover .pin { transform: rotate(-45deg) scale(1.12); }
 
-  .password-field{position:relative;}
-  .password-field input{padding-right:56px;}
-  .password-toggle{
-    position:absolute; right:4px; top:50%; transform:translateY(-50%);
-    background:none; border:none; font-size:11px; color:var(--accent);
-    cursor:pointer; padding:4px 8px;
+  /* ===== Leafletポップアップの調整 ===== */
+  .leaflet-popup-content-wrapper {
+    border-radius: 16px;
+    box-shadow: 0 8px 24px rgba(14,31,26,.25);
+    font-family: 'Noto Sans JP', sans-serif;
+  }
+  .leaflet-popup-content { margin: 14px 16px; min-width: 220px; }
+
+  /* スマホのボトムシート(z-1100)の下にポップアップが隠れて「一瞬出てすぐ消える」ように
+     見えてしまう不具合の対策：Leafletのポップアップ/マーカーをシートより手前に表示する */
+  .leaflet-popup-pane, .leaflet-marker-pane, .leaflet-tooltip-pane {
+    z-index: 1150;
   }
 
-  .leaflet-popup-content{font-size:13px; line-height:1.6; max-width:240px;}
-  .leaflet-popup-content .video-link{display:inline-block; margin-top:6px; color:var(--accent); font-weight:bold; text-decoration:none;}
-  .popup-nickname{font-size:12px; color:#777; margin-bottom:4px;}
-  .popup-actions{display:flex; gap:6px; margin-top:8px;}
-
-  .comments-wrap{margin-top:10px; padding-top:8px; border-top:1px solid var(--line);}
-  .comments-title{font-size:12px; font-weight:bold; color:#555; margin-bottom:4px;}
-  .comments-list{max-height:140px; overflow-y:auto; margin-bottom:6px;}
-  .comment-row{padding:4px 0; border-bottom:1px dashed var(--line);}
-  .comment-meta{font-size:11px; color:var(--accent); font-weight:bold;}
-  .comment-body{font-size:12px; white-space:pre-wrap; word-break:break-word;}
-  .comment-actions{display:flex; gap:6px; margin-top:2px;}
-  .comment-actions button{font-size:11px; padding:2px 8px;}
-  .comment-form textarea{
-    width:100%; font-size:12px; padding:6px; border:1px solid var(--line); border-radius:6px;
-    resize:vertical; min-height:40px; margin-bottom:4px;
+  /* ===== モバイル：ボトムシート ===== */
+  #sheet {
+    transition: transform .25s cubic-bezier(.2,.8,.2,1);
+    touch-action: none;
+    will-change: transform;
   }
-  .comment-form button{font-size:12px;}
+  .sheet-handle { width: 44px; height: 5px; border-radius: 99px; }
+
+  /* フィルターチップの横スクロール（スクロールバー非表示） */
+  .chips { -ms-overflow-style: none; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+
+  /* リスト項目の選択状態 */
+  .spot-card.active { border-color: #E8A33D; background: #FDF6EA; }
+
+  /* キーボードフォーカス可視化 */
+  button:focus-visible, a:focus-visible, input:focus-visible {
+    outline: 3px solid #E8A33D; outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #sheet, .pin { transition: none; }
+  }
+
+  /* ===== 会員機能：モーダル・フォーム ===== */
+  .auth-input {
+    width: 100%; border-radius: 10px; border: 2px solid rgba(22,53,43,.15);
+    padding: 9px 12px; font-size: 14px; background: #fff;
+  }
+  .auth-input:focus { outline: none; border-color: #E8A33D; }
+  .auth-label { display:block; font-size: 12px; font-weight: 700; color: #16352B; margin-bottom: 4px; }
+  .auth-btn-primary {
+    width: 100%; border-radius: 10px; padding: 10px 14px; font-weight: 700; font-size: 14px;
+    color: #fff; background: #16352B; transition: filter .15s;
+  }
+  .auth-btn-primary:hover { filter: brightness(1.15); }
+  .auth-btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+  .auth-btn-link { font-size: 12px; color: #B97F25; font-weight: 700; text-decoration: underline; }
+  .auth-error { font-size: 12px; color: #C4604F; font-weight: 700; min-height: 16px; }
+  .pw-field { position: relative; }
+  .pw-toggle {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    font-size: 12px; color: #16352B99; background: none; border: none; cursor: pointer; padding: 4px;
+  }
+  .comment-item { border-top: 1px solid rgba(22,53,43,.08); padding: 8px 0; }
+  .comment-item:first-child { border-top: none; }
+
+  /* Tailwindのflex等のdisplayユーティリティが hidden 属性より優先されてしまう問題の対策 */
+  [hidden] { display: none !important; }
 </style>
 </head>
-<body>
 
-<header>
-  <h1>MapTube</h1>
-  <div id="authArea"></div>
-</header>
+<body class="bg-mist text-pine">
 
-<div id="map"></div>
+<div class="h-full flex flex-col">
 
-<div id="panel">
-  <div id="postFormWrap" style="display:none;">
-    <form id="postForm" autocomplete="off">
-      <div class="full">
-        <label>位置(地図をクリック、または緯度・経度を入力して「この位置を指定」)</label>
-        <div class="latlng-row">
-          <input type="text" id="latInput" inputmode="decimal" placeholder="緯度 例: 35.68124">
-          <input type="text" id="lngInput" inputmode="decimal" placeholder="経度 例: 139.76712">
-          <button type="button" class="link-btn" id="latlngApplyBtn">この位置を指定</button>
+  <!-- ===== ヘッダー ===== -->
+  <header class="shrink-0 bg-pine text-mist px-4 py-2.5 flex items-center gap-3 z-[1200] shadow-md">
+    <!-- 道路標識風ロゴ -->
+    <div class="flex items-center gap-2">
+      <div class="w-9 h-9 rounded-lg bg-lantern flex items-center justify-center font-maru font-black text-pine text-lg select-none" aria-hidden="true">旅</div>
+      <div class="leading-tight">
+        <h1 class="font-maru font-bold text-base sm:text-lg tracking-wide">くるま旅マップ</h1>
+        <p class="text-[10px] sm:text-[11px] text-mist/70 hidden sm:block">車中泊・キャンプスポット共有マップ</p>
+      </div>
+    </div>
+    <div class="ml-auto flex items-center gap-2">
+      <span id="spot-count" class="text-xs bg-pinedim rounded-full px-3 py-1 font-medium" aria-live="polite">読込中…</span>
+      <div id="auth-area" class="flex items-center gap-1.5"></div>
+    </div>
+  </header>
+
+  <!-- ===== 本体（PC: 2カラム / スマホ: マップ全面） ===== -->
+  <div class="flex-1 relative flex overflow-hidden">
+
+    <!-- ── PCサイドバー ── -->
+    <aside class="hidden md:flex md:flex-col w-[380px] shrink-0 bg-white border-r border-pine/10 z-[1100]">
+      <div class="p-4 border-b border-pine/10 space-y-3">
+        <div class="relative">
+          <input id="search-input" type="search" placeholder="スポット名・説明で検索…" aria-label="スポットを検索"
+            class="auth-input !pl-8" />
+          <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-pine/40 text-sm" aria-hidden="true">🔍</span>
         </div>
-        <div class="hint">Googleマップ等でコピーした「35.68124, 139.76712」の形式を緯度欄に貼り付けても自動で分けて入力されます。</div>
-        <div class="hint" id="latlngMsg"></div>
+        <p class="font-maru font-bold text-sm">カテゴリで絞り込む</p>
+        <div id="cat-filters-pc" class="flex flex-wrap gap-2"></div>
+        <p class="font-maru font-bold text-sm pt-1">設備で絞り込む</p>
+        <div id="fac-filters-pc" class="flex flex-wrap gap-2"></div>
+        <button id="fav-filter-btn-pc" type="button" hidden onclick="toggleFavoritesFilter()"
+          class="w-full flex items-center justify-center gap-1.5 rounded-full border-2 px-3 py-1.5 text-xs font-bold font-maru transition-all bg-white" style="border-color:rgba(22,53,43,.15)">
+          ⭐ お気に入りのみ表示
+        </button>
+        <button id="visit-filter-btn-pc" type="button" hidden onclick="toggleVisitedFilter()"
+          class="w-full flex items-center justify-center gap-1.5 rounded-full border-2 px-3 py-1.5 text-xs font-bold font-maru transition-all bg-white" style="border-color:rgba(22,53,43,.15)">
+          🚗 行った記録のみ表示
+        </button>
       </div>
-      <div>
-        <label for="videoUrl">動画URL (YouTube / X / Instagram / TikTok)(写真のみの場合は空でも可)</label>
-        <input type="url" id="videoUrl" maxlength="300" placeholder="https://youtube.com/...">
-      </div>
-      <div>
-        <label for="description">説明文(200文字まで)</label>
-      </div>
-      <textarea id="description" maxlength="200" placeholder="動画の内容や見どころを書いてください" class="full"></textarea>
-      <div class="full">
-        <label for="photoInput">写真(動画URLが無い場合は必須・自動で適正サイズに縮小されます)</label>
-        <input type="file" id="photoInput" accept="image/*">
-        <div id="photoPreviewWrap">
-          <img id="photoPreview" alt="選択した写真のプレビュー">
-          <button type="button" class="link-btn" id="photoRemoveBtn" onclick="clearSelectedPhoto()">写真を削除</button>
+      <div id="spot-list-pc" class="flex-1 overflow-y-auto p-3 space-y-2"></div>
+    </aside>
+
+    <!-- ── マップ ── -->
+    <main class="flex-1 relative">
+      <div id="map" role="application" aria-label="スポットマップ"></div>
+
+      <!-- スマホ：上部検索バー＋フィルターチップ -->
+      <div id="mobile-search-overlay" class="md:hidden absolute top-2 left-0 right-0 z-[1000] px-2 space-y-1.5">
+        <div class="relative">
+          <input id="search-input-sp" type="search" placeholder="スポット名・説明で検索…" aria-label="スポットを検索"
+            class="auth-input !pl-8 !bg-white shadow-md" />
+          <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-pine/40 text-sm" aria-hidden="true">🔍</span>
         </div>
-        <div class="photo-processing" id="photoProcessing"></div>
+        <div id="cat-filters-sp" class="chips flex gap-2 overflow-x-auto pb-1"></div>
       </div>
-      <div class="hp-field" aria-hidden="true">
-        <label>この欄は入力しないでください</label>
-        <input type="text" id="hp" tabindex="-1" autocomplete="off">
-      </div>
-      <div class="hint full">
-        投稿することで<a href="disclaimer.html" target="_blank">免責事項</a>に同意したものとみなします。
-      </div>
-      <button type="submit" class="primary" id="submitBtn">この内容で投稿する</button>
-      <div id="status" class="full"></div>
-    </form>
-  </div>
-  <div id="loginPrompt" class="hint">投稿するには<button class="link-btn" onclick="showLogin()">ログイン</button>または<button class="link-btn" onclick="showRegister()">新規登録</button>してください。</div>
-</div>
 
-<!-- ログインモーダル -->
-<div class="modal-overlay" id="loginModal" style="display:none;">
-  <div class="modal-box">
-    <h2>ログイン</h2>
-    <label for="loginEmail">登録メールアドレス</label>
-    <input type="email" id="loginEmail">
-    <label for="loginPassword">パスワード</label>
-    <div class="password-field">
-      <input type="password" id="loginPassword">
-      <button type="button" class="password-toggle" onclick="togglePasswordVisibility('loginPassword', this)">表示</button>
-    </div>
-    <div id="loginStatus" style="font-size:12px; color:var(--danger); margin-top:8px;"></div>
-    <div class="modal-actions">
-      <button class="modal-switch" onclick="closeModals(); showRegister();">新規登録はこちら</button>
-      <button class="primary" onclick="doLogin()">ログイン</button>
-    </div>
-    <div style="text-align:right; margin-top:8px;">
-      <button class="link-btn" onclick="closeModals()">閉じる</button>
-    </div>
+      <!-- 現在地ボタン -->
+      <button id="locate-btn" aria-label="現在地を表示"
+        class="absolute bottom-28 md:bottom-6 right-3 md:right-4 z-[1000] w-12 h-12 rounded-full bg-white shadow-lg border border-pine/15 flex items-center justify-center text-xl hover:bg-mist active:scale-95 transition">
+        📍
+      </button>
+
+      <!-- ⑧周遊ルートボタン（1件以上追加されたら表示） -->
+      <button id="route-fab" aria-label="周遊ルート" hidden onclick="openRouteModal()"
+        class="absolute bottom-28 md:bottom-6 left-3 md:left-4 z-[1000] h-12 pl-3 pr-4 rounded-full bg-pine text-white shadow-lg flex items-center gap-1.5 text-sm font-bold font-maru hover:brightness-110 active:scale-95 transition">
+        🗺️ ルート <span class="route-count bg-lantern rounded-full min-w-[20px] h-5 px-1 flex items-center justify-center text-[11px]">0</span>
+      </button>
+
+      <!-- スポット投稿ボタン（会員ログイン時のみ表示） -->
+      <button id="post-spot-btn" aria-label="スポットを投稿" hidden
+        class="absolute bottom-44 md:bottom-24 right-3 md:right-4 z-[1000] h-12 pl-3 pr-4 rounded-full bg-lantern text-white shadow-lg flex items-center gap-1.5 text-sm font-bold font-maru hover:brightness-105 active:scale-95 transition">
+        <span class="text-lg leading-none">📍+</span>投稿する
+      </button>
+    </main>
   </div>
 </div>
 
-<!-- 新規登録モーダル -->
-<div class="modal-overlay" id="registerModal" style="display:none;">
-  <div class="modal-box">
-    <h2>新規登録</h2>
-    <label for="regEmail">メールアドレス</label>
-    <input type="email" id="regEmail">
-    <label for="regNickname">ニックネーム(地図上に表示されます)</label>
-    <input type="text" id="regNickname" maxlength="30">
-    <div class="hp-field" aria-hidden="true">
-      <label>この欄は入力しないでください</label>
-      <input type="text" id="regHp" tabindex="-1" autocomplete="off">
-    </div>
-    <div id="registerStatus" style="font-size:12px; margin-top:8px;"></div>
-    <div class="modal-actions">
-      <button class="modal-switch" onclick="closeModals(); showLogin();">ログインはこちら</button>
-      <button class="primary" onclick="doRegister()">登録する</button>
-    </div>
-    <div style="text-align:right; margin-top:8px;">
-      <button class="link-btn" onclick="closeModals()">閉じる</button>
-    </div>
+<!-- ===== スマホ：ボトムシート ===== -->
+<div id="sheet"
+     class="md:hidden fixed left-0 right-0 bottom-0 z-[1100] bg-white rounded-t-2xl shadow-[0_-8px_30px_rgba(14,31,26,.2)]"
+     style="height: 85vh; transform: translateY(calc(85vh - 96px));">
+  <div id="sheet-grip" class="pt-2.5 pb-1 flex flex-col items-center cursor-grab select-none">
+    <div class="sheet-handle bg-pine/20"></div>
+    <p class="font-maru font-bold text-sm mt-1.5">スポット一覧 <span id="sheet-count" class="text-lantern"></span></p>
+  </div>
+  <div class="px-3 pb-2 flex items-center gap-2">
+    <div id="fac-filters-sp" class="chips flex gap-2 overflow-x-auto flex-1"></div>
+    <button id="fav-filter-btn-sp" type="button" hidden onclick="toggleFavoritesFilter()"
+      class="shrink-0 rounded-full border-2 px-2.5 py-1 text-[11px] font-bold transition-all bg-white" style="border-color:rgba(22,53,43,.15)">
+      ⭐
+    </button>
+    <button id="visit-filter-btn-sp" type="button" hidden onclick="toggleVisitedFilter()"
+      class="shrink-0 rounded-full border-2 px-2.5 py-1 text-[11px] font-bold transition-all bg-white" style="border-color:rgba(22,53,43,.15)">
+      🚗
+    </button>
+  </div>
+  <div id="spot-list-sp" class="overflow-y-auto px-3 pb-24 space-y-2" style="height: calc(85vh - 96px);"></div>
+</div>
+
+<!-- ===== 会員機能：共通モーダル ===== -->
+<div id="modal-overlay" hidden
+     class="fixed inset-0 z-[1400] bg-nightsky/60 flex items-center justify-center p-4">
+  <div id="modal-box"
+       class="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto p-5 sm:p-6 relative">
   </div>
 </div>
 
-<!-- ニックネーム変更モーダル -->
-<div class="modal-overlay" id="nicknameModal" style="display:none;">
-  <div class="modal-box">
-    <h2>ニックネーム変更</h2>
-    <p class="hint">既存の投稿・コメントの表示名も新しいニックネームに更新されます。</p>
-    <label for="nicknameInput">新しいニックネーム</label>
-    <input type="text" id="nicknameInput" maxlength="30">
-    <div id="nicknameStatus" style="font-size:12px; margin-top:8px;"></div>
-    <div class="modal-actions">
-      <span></span>
-      <button class="primary" onclick="doUpdateNickname()">変更する</button>
-    </div>
-    <div style="text-align:right; margin-top:8px;">
-      <button class="link-btn" onclick="closeModals()">閉じる</button>
-    </div>
-  </div>
+<!-- 地図クリックでの位置選択中に表示するバナー -->
+<div id="map-pick-banner" hidden
+     class="fixed top-3 left-1/2 -translate-x-1/2 z-[1450] bg-pine text-white rounded-full shadow-lg pl-4 pr-1.5 py-1.5 flex items-center gap-2 text-xs sm:text-sm font-bold font-maru">
+  📍 地図をタップして位置を選択してください
+  <button type="button" onclick="cancelMapPickLocation()" class="bg-white/20 hover:bg-white/30 rounded-full px-3 py-1 text-xs">キャンセル</button>
 </div>
 
-<!-- パスワード変更モーダル(初回ログイン時は強制表示) -->
-<div class="modal-overlay" id="pwModal" style="display:none;">
-  <div class="modal-box">
-    <h2 id="pwModalTitle">パスワード変更</h2>
-    <p class="hint" id="pwModalHint"></p>
-    <label for="oldPassword">現在のパスワード</label>
-    <div class="password-field">
-      <input type="password" id="oldPassword">
-      <button type="button" class="password-toggle" onclick="togglePasswordVisibility('oldPassword', this)">表示</button>
-    </div>
-    <label for="newPassword">新しいパスワード(8文字以上)</label>
-    <div class="password-field">
-      <input type="password" id="newPassword">
-      <button type="button" class="password-toggle" onclick="togglePasswordVisibility('newPassword', this)">表示</button>
-    </div>
-    <div id="pwStatus" style="font-size:12px; margin-top:8px;"></div>
-    <div class="modal-actions">
-      <span></span>
-      <button class="primary" onclick="doChangePassword()">変更する</button>
-    </div>
-  </div>
+<!-- データ読込に失敗した場合の警告バナー -->
+<div id="data-load-warning" hidden
+     class="fixed top-3 left-1/2 -translate-x-1/2 z-[1450] bg-[#C4604F] text-white rounded-full shadow-lg pl-4 pr-1.5 py-1.5 flex items-center gap-2 text-xs sm:text-sm font-bold font-maru max-w-[92vw]">
+  ⚠️ <span>一部のデータを読み込めませんでした</span>
+  <button type="button" onclick="location.reload()" class="bg-white/20 hover:bg-white/30 rounded-full px-3 py-1 text-xs shrink-0">再読込</button>
+  <button type="button" onclick="document.getElementById('data-load-warning').hidden = true" class="bg-white/20 hover:bg-white/30 rounded-full px-2 py-1 text-xs shrink-0" aria-label="閉じる">✕</button>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-/* ==============================
-   設定
-   ============================== */
-const API_URL = 'https://script.google.com/macros/s/AKfycbyc1y8KtB7EO3H37HLBsMZHB7Foie6qEzyTdSyQO50PI999Za68pEOC62o47ar880nG/exec'; // デプロイ後のURLに置き換える
+/* =====================================================================
+ * 設定
+ * ===================================================================== */
+const CONFIG = {
+  dataUrl: 'spots.json',
+  // 「この情報を修正する」リンク先（ご自身のリポジトリに変更してください）
+  githubEditUrl: 'https://github.com/kenken6291/shachu-haku/edit/main/spots.json',
+  initialView: { lat: 36.2, lng: 138.25, zoom: 6 }, // 日本全体
+  // GASウェブアプリのURL（Code.gs をデプロイして発行されたURLに置き換えてください）
+  gasUrl: 'https://script.google.com/macros/s/AKfycbyKm4WC6C-EXBpe-DBji5zPcWfMuZiVovTZPV3L346Hh5wBIwpL7aa1WWEiyZQ0JMHplg/exec',
+};
 
-/* ==============================
-   セッション状態(localStorageに保持)
-   ============================== */
-let session = JSON.parse(localStorage.getItem('vpm_session') || 'null');
-// session = { token, nickname, role }
+const TERMS_TEXT = `【ご利用にあたっての注意事項】
+・投稿できる情報は、実際に訪問・確認した内容としてください。
+・私有地や許可のない場所への駐車・宿泊を助長する投稿は禁止です。
+・現地のルール、マナー、条例を必ず遵守してください。
+・他の利用者への誹謗中傷、個人情報の掲載は禁止です。
 
-function saveSession(s) {
-  session = s;
-  localStorage.setItem('vpm_session', JSON.stringify(s));
-  renderAuthArea();
-}
-function clearSession() {
-  session = null;
-  localStorage.removeItem('vpm_session');
-  renderAuthArea();
-}
+【免責事項】
+・掲載されている情報の正確性・最新性は保証されません。ご利用の際は必ず現地の最新情報をご確認ください。
+・本サービスの利用により生じたいかなる損害についても、運営者は責任を負いません。
+・投稿内容は運営者の判断により、予告なく編集・削除する場合があります。`;
 
-async function api(action, payload, timeoutMs = 45000) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(Object.assign({ action }, payload)),
-      signal: controller.signal
-    });
-    const text = await res.text();
-    try {
-      return JSON.parse(text);
-    } catch (parseErr) {
-      console.error('APIレスポンスの解析に失敗しました', text);
-      return { status: 'error', message: 'サーバーの応答が不正でした。時間をおいて再度お試しください。' };
-    }
-  } catch (err) {
-    console.error('API通信エラー', err);
-    if (err.name === 'AbortError') {
-      return { status: 'error', message: '通信がタイムアウトしました。電波状況を確認するか、写真を選び直して再度お試しください。' };
-    }
-    return { status: 'error', message: '通信エラーが発生しました。時間をおいて再度お試しください。' };
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
+const CATEGORIES = {
+  michinoeki: { label: '道の駅',     icon: '🛣️', color: '#E8A33D' },
+  rvpark:     { label: 'RVパーク',   icon: '🚐', color: '#3B82A0' },
+  camp:       { label: 'キャンプ場', icon: '⛺', color: '#4C8C5C' },
+  view:       { label: '絶景スポット', icon: '🌄', color: '#7C6BAE' },
+  onsen:      { label: '温泉・入浴', icon: '♨️', color: '#C4604F' },
+  parking:    { label: '駐車場',     icon: '🅿️', color: '#6B7280' },
+  izakaya:    { label: '車中泊で行ける居酒屋', icon: '🏮', color: '#B23A48' },
+};
 
-/* ==============================
-   認証UI描画
-   ============================== */
-function renderAuthArea() {
-  const el = document.getElementById('authArea');
-  const formWrap = document.getElementById('postFormWrap');
-  const loginPrompt = document.getElementById('loginPrompt');
+const FACILITIES = {
+  toilet: { label: 'トイレ', icon: '🚻' },
+  power:  { label: '電源',   icon: '🔌' },
+  bath:   { label: '入浴',   icon: '🛁' },
+  shop:   { label: '売店',   icon: '🏪' },
+  wifi:   { label: 'Wi-Fi',  icon: '📶' },
+  dump:   { label: 'ゴミ処理', icon: '🗑️' },
+};
 
-  if (session && session.token) {
-    el.innerHTML =
-      `<span class="nickname">${escapeForDisplay(session.nickname)}</span> さん` +
-      `<button class="link-btn" onclick="showNicknameEdit()">ニックネーム変更</button>` +
-      `<button class="link-btn" onclick="showChangePassword(false)">パスワード変更</button>` +
-      `<button class="link-btn" onclick="doLogout()">ログアウト</button>`;
-    formWrap.style.display = 'block';
-    loginPrompt.style.display = 'none';
-  } else {
-    el.innerHTML = '';
-    formWrap.style.display = 'none';
-    loginPrompt.style.display = 'block';
-  }
-}
-function escapeForDisplay(s) {
-  const div = document.createElement('div');
-  div.textContent = s;
-  return div.innerHTML;
+const SLEEP_STATUS = {
+  ok:      { label: '車中泊OK',   icon: '🅾️', bg: '#E7F4EA', fg: '#2F7A44' },
+  ng:      { label: '車中泊不可', icon: '❌', bg: '#FBEAEA', fg: '#C4604F' },
+  unclear: { label: '要確認',     icon: '❓', bg: '#F5F1E3', fg: '#B97F25' },
+};
+function sleepStatusOf(spot) {
+  return SLEEP_STATUS[spot.sleepStatus] ? spot.sleepStatus : 'unclear';
 }
 
-/* ==============================
-   モーダル制御
-   ============================== */
-function togglePasswordVisibility(inputId, btn) {
-  const input = document.getElementById(inputId);
-  if (input.type === 'password') {
-    input.type = 'text';
-    btn.textContent = '非表示';
-  } else {
-    input.type = 'password';
-    btn.textContent = '表示';
-  }
+/* カテゴリ絞り込みの取りこぼし対策：
+ * スプレッドシートへの手動貼り付け・一括インポート等で category セルに
+ * 前後の空白やラベル文字列（キー名ではなく「車中泊で行ける居酒屋」等）が
+ * 入ってしまうと、フィルターチップ側のキー('izakaya'等)と一致せず
+ * 絞り込みで表示されなくなる。読み込み時に正規化しておく。 */
+const CATEGORY_LABEL_TO_KEY = Object.fromEntries(
+  Object.entries(CATEGORIES).map(([k, c]) => [c.label, k])
+);
+function normalizeCategoryValue(raw) {
+  const v = (raw == null ? '' : String(raw)).trim();
+  if (CATEGORIES[v]) return v;
+  if (CATEGORY_LABEL_TO_KEY[v]) return CATEGORY_LABEL_TO_KEY[v];
+  return v; // 未知のカテゴリはそのまま（該当チップが無く「駐車場アイコン」等でフォールバック表示）
+}
+function normalizeSpotList(list) {
+  return list.map(s => ({ ...s, category: normalizeCategoryValue(s.category), tel: s.tel == null ? '' : String(s.tel) }));
 }
 
-function closeModals() {
-  document.getElementById('loginModal').style.display = 'none';
-  document.getElementById('registerModal').style.display = 'none';
-  document.getElementById('pwModal').style.display = 'none';
-  document.getElementById('nicknameModal').style.display = 'none';
-  // パスワード表示状態をリセット(モーダルを開き直した時に前回の表示状態が残らないように)
-  document.querySelectorAll('.password-field input').forEach(input => { input.type = 'password'; });
-  document.querySelectorAll('.password-toggle').forEach(btn => { btn.textContent = '表示'; });
+/* ⑥ Googleドライブに保存した写真の表示URL（サムネイル/拡大表示） */
+function drivePhotoUrl(fileId, size = 400) {
+  return `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w${size}`;
 }
-function showLogin() { closeModals(); document.getElementById('loginModal').style.display = 'flex'; }
-function showRegister() { closeModals(); document.getElementById('registerModal').style.display = 'flex'; }
-function showNicknameEdit() {
-  closeModals();
-  document.getElementById('nicknameInput').value = session.nickname;
-  document.getElementById('nicknameStatus').textContent = '';
-  document.getElementById('nicknameModal').style.display = 'flex';
-}
-function showChangePassword(forced) {
-  closeModals();
-  document.getElementById('pwModalHint').textContent = forced
-    ? '初回ログインです。仮パスワードから新しいパスワードに変更してください。'
-    : '';
-  document.getElementById('pwModal').style.display = 'flex';
-}
+const MAX_PHOTOS_PER_SPOT = 3;
 
-async function doUpdateNickname() {
-  const newNickname = document.getElementById('nicknameInput').value.trim();
-  const statusEl = document.getElementById('nicknameStatus');
-  if (!newNickname) { statusEl.style.color = 'var(--danger)'; statusEl.textContent = 'ニックネームを入力してください。'; return; }
-  statusEl.style.color = '#555';
-  statusEl.textContent = '処理中...';
+/* =====================================================================
+ * 状態
+ * ===================================================================== */
+let allSpots = [];
+let markers = {};            // id -> L.Marker
+const activeCats = new Set(Object.keys(CATEGORIES)); // 初期は全カテゴリON
+const activeFacs = new Set();                        // AND条件（空なら無視）
+let searchQuery = '';                                // ①名称・説明のテキスト検索
+let showFavoritesOnly = false;                        // ⑦お気に入りのみ表示
+let showVisitedOnly = false;                           // ⑪行った記録のみ表示
+let favoriteSpotIds = new Set();                      // ⑦ログイン中会員のお気に入りスポットID
+let visits = [];                                       // ⑪ログイン中会員の「行った記録」一覧 {id,spotId,visitedDate,note,createdAt,updatedAt}
+let spotStats = {};                                    // ⑩ spotId -> { avg, count }（コメントの平均評価）
+let routeSpots = [];                                   // ⑧周遊ルートに追加したスポット（順序つき）
+let pendingPhotoFiles = [];                            // ⑥投稿フォームで選択中（未アップロード）の写真ファイル
+let currentEditingSpotPhotosCount = 0;                 // ⑥編集中スポットの既存写真枚数（上限チェック用）
 
-  const data = await api('updateNickname', { token: session.token, nickname: newNickname });
-  if (data.status === 'ok') {
-    saveSession({ token: session.token, nickname: data.nickname, role: session.role });
-    statusEl.style.color = 'var(--accent)';
-    statusEl.textContent = 'ニックネームを変更しました。';
-    loadPins();
-    setTimeout(closeModals, 800);
-  } else {
-    statusEl.style.color = 'var(--danger)';
-    statusEl.textContent = data.message || '変更に失敗しました。';
-  }
-}
+/* ===== 会員機能：状態 ===== */
+const auth = { token: null, userId: null, nickname: null, mustChangePassword: false };
 
-async function doLogin() {
-  const email = document.getElementById('loginEmail').value.trim();
-  const password = document.getElementById('loginPassword').value;
-  const statusEl = document.getElementById('loginStatus');
-  statusEl.textContent = 'ログイン中...';
+/* =====================================================================
+ * マップ初期化（OpenStreetMap：APIキー不要）
+ * ===================================================================== */
+const map = L.map('map', {
+  zoomControl: false,
+  tap: true,
+}).setView([CONFIG.initialView.lat, CONFIG.initialView.lng], CONFIG.initialView.zoom);
 
-  const data = await api('login', { email, password });
-  if (data.status === 'ok') {
-    saveSession({ token: data.token, nickname: data.nickname, role: data.role });
-    closeModals();
-    if (data.mustChangePassword) showChangePassword(true);
-    loadPins();
-  } else {
-    statusEl.textContent = data.message || 'ログインに失敗しました。';
-  }
-}
-
-async function doRegister() {
-  const email = document.getElementById('regEmail').value.trim();
-  const nickname = document.getElementById('regNickname').value.trim();
-  const hp = document.getElementById('regHp').value;
-  const statusEl = document.getElementById('registerStatus');
-  statusEl.className = ''; statusEl.textContent = '登録中...';
-
-  const data = await api('register', { email, nickname, hp });
-  if (data.status === 'ok') {
-    statusEl.style.color = 'var(--accent)';
-    statusEl.textContent = data.message + ' メール内の仮パスワードでログインしてください。';
-  } else {
-    statusEl.style.color = 'var(--danger)';
-    statusEl.textContent = data.message || '登録に失敗しました。';
-  }
-}
-
-async function doLogout() {
-  if (session && session.token) await api('logout', { token: session.token });
-  clearSession();
-}
-
-async function doChangePassword() {
-  const oldPassword = document.getElementById('oldPassword').value;
-  const newPassword = document.getElementById('newPassword').value;
-  const statusEl = document.getElementById('pwStatus');
-  statusEl.textContent = '処理中...';
-
-  const data = await api('changePassword', { token: session.token, oldPassword, newPassword });
-  if (data.status === 'ok') {
-    statusEl.style.color = 'var(--accent)';
-    statusEl.textContent = 'パスワードを変更しました。安全のため再度ログインしてください。';
-    // パスワード変更時はサーバー側で全セッションが無効化されるため、フロントのセッションも破棄する
-    clearSession();
-    setTimeout(() => { closeModals(); showLogin(); }, 1200);
-  } else {
-    statusEl.style.color = 'var(--danger)';
-    statusEl.textContent = data.message || '変更に失敗しました。';
-  }
-}
-
-/* ==============================
-   地図
-   ============================== */
-const map = L.map('map').setView([35.681236, 139.767125], 13);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap contributors', maxZoom: 19
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 }).addTo(map);
 
-let selectedLatLng = null;
-let selectionMarker = null;
-const latInput = document.getElementById('latInput');
-const lngInput = document.getElementById('lngInput');
-const latlngMsg = document.getElementById('latlngMsg');
+L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-function setLatlngMsg(text, cls) {
-  latlngMsg.textContent = text || '';
-  latlngMsg.className = 'hint' + (cls ? ' ' + cls : '');
-}
-
-// 位置を確定(地図クリック・数値入力の共通処理)
-function setSelectedLocation(lat, lng, panTo) {
-  const latlng = L.latLng(lat, lng);
-  selectedLatLng = latlng;
-  latInput.value = lat.toFixed(5);
-  lngInput.value = lng.toFixed(5);
-  if (selectionMarker) selectionMarker.setLatLng(latlng);
-  else selectionMarker = L.marker(latlng, { opacity: 0.7 }).addTo(map);
-  if (panTo) map.setView(latlng, Math.max(map.getZoom(), 15));
-}
-
-// 全角数字・全角記号を半角に
-function toHalfWidth(str) {
-  return String(str)
-    .replace(/[０-９．－，＋]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
-    .replace(/[、　]/g, ch => ch === '、' ? ',' : ' ')
-    .replace(/[ー−–—]/g, '-')
-    .trim();
-}
-
-// 「35.68, 139.76」「35.68 139.76」形式を分解
-function splitLatLngText(text) {
-  const m = toHalfWidth(text).match(/^\s*([-+]?\d+(?:\.\d+)?)\s*[,\s]\s*([-+]?\d+(?:\.\d+)?)\s*$/);
-  return m ? { lat: m[1], lng: m[2] } : null;
-}
-
-// 緯度欄に「緯度, 経度」を貼り付けたら自動で分割
-latInput.addEventListener('input', () => {
-  const pair = splitLatLngText(latInput.value);
-  if (pair) {
-    latInput.value = pair.lat;
-    lngInput.value = pair.lng;
-  }
+/* 大量スポットでも軽快に動くよう、個別マーカーではなくクラスタリング表示にする */
+const markerClusterGroup = L.markerClusterGroup({
+  maxClusterRadius: 60,
+  spiderfyOnMaxZoom: true,
+  showCoverageOnHover: false,
+  chunkedLoading: true, // 追加処理を分割してUIブロックを防ぐ
 });
+map.addLayer(markerClusterGroup);
+const LIST_RENDER_LIMIT = 300; // サイドバー/シートの一覧はこの件数まで表示（地図上のマーカーは全件表示）
 
-function applyLatLngInput() {
-  const latStr = toHalfWidth(latInput.value);
-  const lngStr = toHalfWidth(lngInput.value);
-  if (!latStr || !lngStr) {
-    setLatlngMsg('緯度と経度の両方を入力してください。', 'error'); return;
-  }
-  const numRe = /^[-+]?\d+(\.\d+)?$/;
-  if (!numRe.test(latStr) || !numRe.test(lngStr)) {
-    setLatlngMsg('緯度・経度は数値で入力してください(例: 35.68124)。', 'error'); return;
-  }
-  const lat = Number(latStr), lng = Number(lngStr);
-  if (lat < -90 || lat > 90) { setLatlngMsg('緯度は -90 〜 90 の範囲で入力してください。', 'error'); return; }
-  if (lng < -180 || lng > 180) { setLatlngMsg('経度は -180 〜 180 の範囲で入力してください。', 'error'); return; }
-  setSelectedLocation(lat, lng, true);
-  setLatlngMsg('位置を指定しました。', 'ok');
-}
+/* =====================================================================
+ * データ読込（fetch失敗時はサンプルデータにフォールバック）
+ * ===================================================================== */
+const SAMPLE_DATA = {
+  spots: [
+    { id: 'sample-001', name: '道の駅 みさと高原（サンプル）', category: 'michinoeki',
+      lat: 36.05, lng: 138.10, description: '標高900mの高原にある道の駅。夜は満天の星空。',
+      facilities: { toilet: true, shop: true }, openHours: '24時間（売店 9:00-17:00）', fee: '無料' },
+    { id: 'sample-002', name: 'RVパーク 湖畔ベース（サンプル）', category: 'rvpark',
+      lat: 35.50, lng: 138.76, description: '湖を望む電源付きRVパーク。要事前予約。',
+      facilities: { toilet: true, power: true, dump: true, wifi: true }, openHours: 'チェックイン 13:00-18:00', fee: '2,500円/泊' },
+    { id: 'sample-003', name: '星降る浜キャンプ場（サンプル）', category: 'camp',
+      lat: 34.68, lng: 138.94, description: '海沿いのフリーサイト。直火不可。',
+      facilities: { toilet: true, shop: true, bath: true }, openHours: '通年', fee: '1,000円/人' },
+  ]
+};
 
-document.getElementById('latlngApplyBtn').addEventListener('click', applyLatLngInput);
-[latInput, lngInput].forEach(el => el.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') { e.preventDefault(); applyLatLngInput(); }
-}));
-
-map.on('click', (e) => {
-  setSelectedLocation(e.latlng.lat, e.latlng.lng, false);
-  setLatlngMsg('');
-});
-
-/* ==============================
-   写真選択・自動リサイズ
-   ============================== */
-let selectedPhotoDataUrl = null; // リサイズ後のJPEG data URL(送信用)
-const MAX_ORIGINAL_PHOTO_BYTES = 20 * 1024 * 1024; // 20MB(選択直後の元ファイルサイズの上限)
-const TARGET_PHOTO_BYTES = 700 * 1024; // 送信data URLの目標上限(約700KB)
-
-const photoInput = document.getElementById('photoInput');
-const photoPreviewWrap = document.getElementById('photoPreviewWrap');
-const photoPreview = document.getElementById('photoPreview');
-const photoProcessing = document.getElementById('photoProcessing');
-
-photoInput.addEventListener('change', async () => {
-  const file = photoInput.files && photoInput.files[0];
-  if (!file) return;
-
-  if (!file.type.startsWith('image/')) {
-    photoProcessing.textContent = '画像ファイルを選択してください。';
-    photoInput.value = '';
-    return;
-  }
-  if (file.size > MAX_ORIGINAL_PHOTO_BYTES) {
-    photoProcessing.textContent = 'ファイルサイズが大きすぎます(20MBまで)。';
-    photoInput.value = '';
-    return;
-  }
-
-  photoProcessing.textContent = '写真を処理しています...';
+async function loadSpots() {
   try {
-    selectedPhotoDataUrl = await resizeImageToDataUrl(file);
-    photoPreview.src = selectedPhotoDataUrl;
-    photoPreviewWrap.style.display = 'flex';
-    photoProcessing.textContent = '';
+    const res = await fetch(CONFIG.dataUrl, { cache: 'no-cache' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    allSpots = normalizeSpotList(data.spots || []).map(s => ({ ...s, source: 'static' }));
   } catch (e) {
-    console.error('写真の処理に失敗しました', e);
-    photoProcessing.textContent = '写真の処理に失敗しました。別の写真をお試しください。';
-    selectedPhotoDataUrl = null;
+    console.warn('spots.json の読込に失敗したため、サンプルデータを表示します:', e.message);
+    allSpots = normalizeSpotList(SAMPLE_DATA.spots).map(s => ({ ...s, source: 'static' }));
+    showDataLoadWarning();
+  }
+
+  try {
+    let memberSpots;
+    try {
+      memberSpots = await loadMemberSpots();
+    } catch (e1) {
+      console.warn('会員投稿スポットの読込に失敗、再試行します:', e1.message);
+      await new Promise(r => setTimeout(r, 1500));
+      memberSpots = await loadMemberSpots(); // 通信の一時的な失敗に備えて1回だけ再試行
+    }
+    allSpots = allSpots.concat(memberSpots);
+  } catch (e) {
+    console.warn('会員投稿スポットの読込に失敗しました（再試行後も失敗）:', e.message);
+    showDataLoadWarning();
+  }
+
+  await loadSpotStats();      // ⑩平均評価
+  if (auth.token) { await loadFavorites(); await loadVisits(); } // ⑦お気に入り・⑪行った記録（ログイン済みの場合）
+  loadRouteFromStorage();      // ⑧周遊ルート（端末に保存済みのもの）
+  updateRouteButton();
+  syncFavFilterButton();
+  syncVisitFilterButton();
+
+  buildFilters();
+  render();
+}
+
+function showDataLoadWarning() {
+  const el = document.getElementById('data-load-warning');
+  if (el) el.hidden = false;
+}
+
+/* ⑩ スポットごとの平均評価を取得 */
+async function loadSpotStats() {
+  try {
+    const res = await fetch(CONFIG.gasUrl + '?action=listSpotStats', { cache: 'no-cache' });
+    const json = await res.json();
+    spotStats = json.ok ? json.stats : {};
+  } catch (e) {
+    spotStats = {};
+  }
+}
+
+/* ⑦ ログイン中会員のお気に入りスポットIDを取得 */
+async function loadFavorites() {
+  if (!auth.token) { favoriteSpotIds = new Set(); return; }
+  try {
+    const res = await callApi('listFavorites', { token: auth.token });
+    favoriteSpotIds = new Set(res.ok ? res.spotIds : []);
+  } catch (e) {
+    favoriteSpotIds = new Set();
+  }
+}
+
+/* ⑪ ログイン中会員の「行った記録」一覧を取得 */
+async function loadVisits() {
+  if (!auth.token) { visits = []; return; }
+  try {
+    const res = await callApi('listVisits', { token: auth.token });
+    visits = res.ok ? res.visits : [];
+  } catch (e) {
+    visits = [];
+  }
+}
+
+function visitsForSpot(spotId) {
+  return visits.filter(v => v.spotId === spotId)
+    .sort((a, b) => (b.visitedDate || '').localeCompare(a.visitedDate || ''));
+}
+
+function todayStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+// サーバー側で日付型に自動変換されISO形式("2026-09-21T15:00:00.000Z"等)で
+// 返ってきた場合でも、先頭の yyyy-MM-dd 部分だけを取り出して表示する保険
+function formatVisitDate(v) {
+  const s = String(v || '');
+  const m = s.match(/^\d{4}-\d{2}-\d{2}/);
+  return m ? m[0] : s;
+}
+
+function visitListHtml(spotId) {
+  const list = visitsForSpot(spotId);
+  if (!list.length) return `<p class="text-[11px] text-gray-400">まだ記録がありません。</p>`;
+  return list.map(v => `
+    <div class="flex items-start justify-between gap-2 text-[11px] py-1 border-b border-pine/5 last:border-0">
+      <div class="min-w-0">
+        <p class="font-bold text-pine">${esc(formatVisitDate(v.visitedDate))}</p>
+        ${v.note ? `<p class="text-gray-600 whitespace-pre-wrap">${esc(v.note)}</p>` : ''}
+      </div>
+      <span class="shrink-0 flex gap-2">
+        <button type="button" class="auth-btn-link !text-[10px]" onclick="handleEditVisit('${spotId}','${v.id}')">編集</button>
+        <button type="button" class="auth-btn-link !text-[10px]" style="color:#C4604F" onclick="handleDeleteVisit('${spotId}','${v.id}')">削除</button>
+      </span>
+    </div>`).join('');
+}
+
+async function handleAddVisit(spotId) {
+  if (!auth.token) { openLoginModal(); return; }
+  const dateInput = prompt('訪問日を入力してください（例: ' + todayStr() + '）', todayStr());
+  if (dateInput === null) return;
+  const visitedDate = dateInput.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(visitedDate)) { alert('日付は YYYY-MM-DD の形式で入力してください。'); return; }
+  const note = prompt('メモ（任意）', '') || '';
+  try {
+    const res = await callApi('addVisit', { token: auth.token, spotId, visitedDate, note: note.trim() });
+    if (!res.ok) { alert('記録に失敗しました。'); return; }
+    await loadVisits();
+    refreshOpenPopupContent(spotId);
+    updateSpotCardInPlace(spotId);
+  } catch (e) {
+    alert('通信エラーが発生しました。');
+  }
+}
+
+async function handleEditVisit(spotId, visitId) {
+  const v = visits.find(x => x.id === visitId);
+  if (!v) return;
+  const dateInput = prompt('訪問日を編集', formatVisitDate(v.visitedDate) || todayStr());
+  if (dateInput === null) return;
+  const visitedDate = dateInput.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(visitedDate)) { alert('日付は YYYY-MM-DD の形式で入力してください。'); return; }
+  const note = prompt('メモを編集', v.note || '');
+  if (note === null) return;
+  try {
+    const res = await callApi('updateVisit', { token: auth.token, visitId, visitedDate, note: note.trim() });
+    if (!res.ok) { alert('編集に失敗しました。'); return; }
+    await loadVisits();
+    refreshOpenPopupContent(spotId);
+    updateSpotCardInPlace(spotId);
+  } catch (e) {
+    alert('通信エラーが発生しました。');
+  }
+}
+
+async function handleDeleteVisit(spotId, visitId) {
+  if (!confirm('この「行った記録」を削除しますか？')) return;
+  try {
+    const res = await callApi('deleteVisit', { token: auth.token, visitId });
+    if (!res.ok) { alert('削除に失敗しました。'); return; }
+    await loadVisits();
+    refreshOpenPopupContent(spotId);
+    updateSpotCardInPlace(spotId);
+  } catch (e) {
+    alert('通信エラーが発生しました。');
+  }
+}
+
+/* マイページ「行った記録」一覧モーダル（全スポット横断） */
+function openVisitHistoryModal() {
+  const sorted = [...visits].sort((a, b) => (b.visitedDate || '').localeCompare(a.visitedDate || ''));
+  openModal(`
+    <h2 class="font-maru font-bold text-lg mb-3">🚗 行った記録</h2>
+    ${sorted.length === 0 ? `<p class="text-xs text-gray-400">まだ記録がありません。地図でスポットを開き「＋ 記録する」から追加できます。</p>` : `
+    <div class="space-y-2 max-h-[60vh] overflow-y-auto">
+      ${sorted.map(v => {
+        const spot = allSpots.find(s => s.id === v.spotId);
+        const c = spot ? (CATEGORIES[spot.category] || {}) : {};
+        return `
+        <div class="border-2 border-pine/10 rounded-lg p-2 text-xs">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <p class="font-bold text-pine truncate">${c.icon ? c.icon + ' ' : ''}${esc(spot ? spot.name : '(削除済みスポット)')}</p>
+              <p class="text-gray-500">${esc(formatVisitDate(v.visitedDate))}</p>
+              ${v.note ? `<p class="text-gray-600 whitespace-pre-wrap mt-0.5">${esc(v.note)}</p>` : ''}
+            </div>
+            <span class="shrink-0 flex gap-2">
+              <button type="button" class="auth-btn-link !text-[10px]" onclick="handleEditVisitFromHistory('${v.id}')">編集</button>
+              <button type="button" class="auth-btn-link !text-[10px]" style="color:#C4604F" onclick="handleDeleteVisitFromHistory('${v.id}')">削除</button>
+            </span>
+          </div>
+          ${spot ? `<button type="button" class="auth-btn-link !text-[10px] mt-1" onclick="closeModal();focusSpot('${spot.id}',true)">地図で見る</button>` : ''}
+        </div>`;
+      }).join('')}
+    </div>`}`);
+}
+
+async function handleEditVisitFromHistory(visitId) {
+  const v = visits.find(x => x.id === visitId);
+  if (!v) return;
+  await handleEditVisit(v.spotId, visitId);
+  openVisitHistoryModal();
+}
+
+async function handleDeleteVisitFromHistory(visitId) {
+  const v = visits.find(x => x.id === visitId);
+  if (!v) return;
+  await handleDeleteVisit(v.spotId, visitId);
+  openVisitHistoryModal();
+}
+
+async function handleToggleFavorite(spotId) {
+  if (!auth.token) { openLoginModal(); return; }
+  try {
+    const res = await callApi('toggleFavorite', { token: auth.token, spotId });
+    if (!res.ok) { alert('お気に入りの更新に失敗しました。'); return; }
+    res.favorited ? favoriteSpotIds.add(spotId) : favoriteSpotIds.delete(spotId);
+    refreshOpenPopupContent(spotId);
+    updateSpotCardInPlace(spotId);
+    if (showFavoritesOnly) render(); // 表示中スポットの増減があるため
+  } catch (e) {
+    alert('通信エラーが発生しました。');
+  }
+}
+
+/* =====================================================================
+ * ⑧ 周遊ルート（クライアント側のみ・端末のlocalStorageに保存）
+ * ===================================================================== */
+function loadRouteFromStorage() {
+  try { routeSpots = JSON.parse(localStorage.getItem('kurumatabi_route') || '[]'); } catch (e) { routeSpots = []; }
+}
+function saveRouteToStorage() {
+  localStorage.setItem('kurumatabi_route', JSON.stringify(routeSpots));
+}
+function isInRoute(spotId) {
+  return routeSpots.some(s => s.id === spotId);
+}
+function updateRouteButton() {
+  const btn = document.getElementById('route-fab');
+  if (!btn) return;
+  btn.hidden = routeSpots.length === 0;
+  const countEl = btn.querySelector('.route-count');
+  if (countEl) countEl.textContent = routeSpots.length;
+}
+function toggleRouteSpot(spotId) {
+  const spot = allSpots.find(s => s.id === spotId);
+  if (!spot) return;
+  const idx = routeSpots.findIndex(s => s.id === spotId);
+  if (idx >= 0) {
+    routeSpots.splice(idx, 1);
+  } else {
+    if (routeSpots.length >= 10) { alert('ルートに追加できるのは10件までです。'); return; }
+    routeSpots.push({ id: spot.id, name: spot.name, lat: spot.lat, lng: spot.lng });
+  }
+  saveRouteToStorage();
+  updateRouteButton();
+  refreshOpenPopupContent(spotId);
+  updateSpotCardInPlace(spotId);
+}
+function buildRouteUrl() {
+  return 'https://www.google.com/maps/dir/' + routeSpots.map(s => `${s.lat},${s.lng}`).join('/');
+}
+function openRouteModal() {
+  openModal(routeModalHtml());
+}
+function routeModalHtml() {
+  if (routeSpots.length === 0) {
+    return `<h2 class="font-maru font-bold text-lg mb-3">🗺️ 周遊ルート</h2>
+      <p class="text-sm text-gray-400">まだスポットが追加されていません。ポップアップの「🗺️＋ルートに追加」から追加してください。</p>`;
+  }
+  const items = routeSpots.map((s, i) => `
+    <div class="flex items-center gap-2 bg-mist rounded-lg px-2.5 py-2">
+      <span class="shrink-0 w-6 h-6 rounded-full bg-pine text-white text-[11px] font-bold flex items-center justify-center">${i + 1}</span>
+      <p class="flex-1 min-w-0 text-sm font-medium truncate">${esc(s.name)}</p>
+      <button type="button" class="shrink-0 text-pine/50 disabled:opacity-20 px-1" ${i === 0 ? 'disabled' : ''} onclick="moveRouteSpot(${i},-1)">▲</button>
+      <button type="button" class="shrink-0 text-pine/50 disabled:opacity-20 px-1" ${i === routeSpots.length - 1 ? 'disabled' : ''} onclick="moveRouteSpot(${i},1)">▼</button>
+      <button type="button" class="shrink-0 px-1" style="color:#C4604F" onclick="removeRouteSpot(${i})">✕</button>
+    </div>`).join('');
+  return `
+    <h2 class="font-maru font-bold text-lg mb-3">🗺️ 周遊ルート（${routeSpots.length}件）</h2>
+    <div class="space-y-1.5 max-h-[50vh] overflow-y-auto">${items}</div>
+    <div class="flex gap-2 mt-4">
+      <a href="${buildRouteUrl()}" target="_blank" rel="noopener" class="auth-btn-primary flex-1 text-center">経路を開く</a>
+      <button type="button" class="auth-btn-link" style="color:#C4604F" onclick="clearRoute()">クリア</button>
+    </div>`;
+}
+function moveRouteSpot(idx, dir) {
+  const j = idx + dir;
+  if (j < 0 || j >= routeSpots.length) return;
+  [routeSpots[idx], routeSpots[j]] = [routeSpots[j], routeSpots[idx]];
+  saveRouteToStorage();
+  openModal(routeModalHtml());
+}
+function removeRouteSpot(idx) {
+  const removed = routeSpots.splice(idx, 1)[0];
+  saveRouteToStorage();
+  updateRouteButton();
+  if (removed) { refreshOpenPopupContent(removed.id); updateSpotCardInPlace(removed.id); }
+  openModal(routeModalHtml());
+}
+function clearRoute() {
+  if (!confirm('ルートをクリアしますか？')) return;
+  const ids = routeSpots.map(s => s.id);
+  routeSpots = [];
+  saveRouteToStorage();
+  updateRouteButton();
+  closeModal();
+  ids.forEach(id => { refreshOpenPopupContent(id); updateSpotCardInPlace(id); });
+}
+
+/* =====================================================================
+ * フィルターUI生成
+ * ===================================================================== */
+function catChip(key, compact = false) {
+  const c = CATEGORIES[key];
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.dataset.cat = key;
+  btn.className = 'cat-chip shrink-0 flex items-center gap-1.5 rounded-full border-2 px-3 py-1.5 text-xs font-bold font-maru transition-all whitespace-nowrap bg-white';
+  btn.innerHTML = `<span>${c.icon}</span>${c.label}`;
+  btn.addEventListener('click', () => {
+    activeCats.has(key) ? activeCats.delete(key) : activeCats.add(key);
+    syncChipStyles(); render();
+  });
+  return btn;
+}
+
+function facChip(key) {
+  const f = FACILITIES[key];
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.dataset.fac = key;
+  btn.className = 'fac-chip shrink-0 flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-all whitespace-nowrap bg-white border-pine/20 text-pine/70';
+  btn.innerHTML = `<span>${f.icon}</span>${f.label}`;
+  btn.addEventListener('click', () => {
+    activeFacs.has(key) ? activeFacs.delete(key) : activeFacs.add(key);
+    syncChipStyles(); render();
+  });
+  return btn;
+}
+
+function buildFilters() {
+  const catPC = document.getElementById('cat-filters-pc');
+  const catSP = document.getElementById('cat-filters-sp');
+  const facPC = document.getElementById('fac-filters-pc');
+  const facSP = document.getElementById('fac-filters-sp');
+  Object.keys(CATEGORIES).forEach(k => { catPC.appendChild(catChip(k)); catSP.appendChild(catChip(k, true)); });
+  Object.keys(FACILITIES).forEach(k => { facPC.appendChild(facChip(k)); facSP.appendChild(facChip(k)); });
+  syncChipStyles();
+  setupSearchInputs();
+}
+
+/* ① 検索ボックス（PC／スマホ同期・簡易デバウンス） */
+function setupSearchInputs() {
+  const inputs = [document.getElementById('search-input'), document.getElementById('search-input-sp')];
+  let t = null;
+  inputs.forEach(el => {
+    if (!el) return;
+    el.addEventListener('input', () => {
+      searchQuery = el.value;
+      inputs.forEach(other => { if (other && other !== el) other.value = el.value; }); // 2つの入力欄を同期
+      clearTimeout(t);
+      t = setTimeout(render, 150);
+    });
+  });
+}
+
+function syncChipStyles() {
+  document.querySelectorAll('.cat-chip').forEach(btn => {
+    const key = btn.dataset.cat, c = CATEGORIES[key], on = activeCats.has(key);
+    btn.style.borderColor = on ? c.color : 'rgba(22,53,43,.15)';
+    btn.style.background  = on ? c.color : '#fff';
+    btn.style.color       = on ? '#fff'  : 'rgba(22,53,43,.55)';
+    btn.setAttribute('aria-pressed', on);
+  });
+  document.querySelectorAll('.fac-chip').forEach(btn => {
+    const on = activeFacs.has(btn.dataset.fac);
+    btn.classList.toggle('bg-lantern', on);
+    btn.classList.toggle('border-lantern', on);
+    btn.classList.toggle('text-white', on);
+    btn.classList.toggle('bg-white', !on);
+    btn.setAttribute('aria-pressed', on);
+  });
+}
+
+/* カテゴリ・設備・検索・お気に入りフィルターをすべて初期状態に戻す */
+function resetFilters() {
+  Object.keys(CATEGORIES).forEach(k => activeCats.add(k));
+  activeFacs.clear();
+  searchQuery = '';
+  showFavoritesOnly = false;
+  showVisitedOnly = false;
+  const si1 = document.getElementById('search-input');
+  const si2 = document.getElementById('search-input-sp');
+  if (si1) si1.value = '';
+  if (si2) si2.value = '';
+  syncChipStyles();
+  syncFavFilterButton();
+  syncVisitFilterButton();
+  render();
+}
+
+/* =====================================================================
+ * フィルタリング・描画
+ * ===================================================================== */
+function filteredSpots() {
+  const q = searchQuery.trim().toLowerCase();
+  return allSpots.filter(s => {
+    if (!activeCats.has(s.category)) return false;
+    for (const f of activeFacs) {
+      if (!s.facilities || !s.facilities[f]) return false; // AND条件
+    }
+    if (showFavoritesOnly && !favoriteSpotIds.has(s.id)) return false;
+    if (showVisitedOnly && !visitsForSpot(s.id).length) return false;
+    if (q) {
+      const hay = `${s.name || ''} ${s.description || ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+/* ⑦お気に入りのみ表示トグル */
+function toggleFavoritesFilter() {
+  if (!auth.token) { openLoginModal(); return; }
+  showFavoritesOnly = !showFavoritesOnly;
+  syncFavFilterButton();
+  render();
+}
+function syncFavFilterButton() {
+  [document.getElementById('fav-filter-btn-pc'), document.getElementById('fav-filter-btn-sp')].forEach(btn => {
+    if (!btn) return;
+    btn.hidden = !auth.token;
+    btn.style.borderColor = showFavoritesOnly ? '#E8A33D' : 'rgba(22,53,43,.15)';
+    btn.style.background = showFavoritesOnly ? '#FDF6EA' : '#fff';
+    btn.style.color = showFavoritesOnly ? '#B97F25' : '';
+    btn.setAttribute('aria-pressed', showFavoritesOnly);
+  });
+}
+
+/* ⑪行った記録のみ表示トグル */
+function toggleVisitedFilter() {
+  if (!auth.token) { openLoginModal(); return; }
+  showVisitedOnly = !showVisitedOnly;
+  syncVisitFilterButton();
+  render();
+}
+function syncVisitFilterButton() {
+  [document.getElementById('visit-filter-btn-pc'), document.getElementById('visit-filter-btn-sp')].forEach(btn => {
+    if (!btn) return;
+    btn.hidden = !auth.token;
+    btn.style.borderColor = showVisitedOnly ? '#4C8C5C' : 'rgba(22,53,43,.15)';
+    btn.style.background = showVisitedOnly ? '#E7F4EA' : '#fff';
+    btn.style.color = showVisitedOnly ? '#2F7A44' : '';
+    btn.setAttribute('aria-pressed', showVisitedOnly);
+  });
+}
+
+function makeIcon(category) {
+  const c = CATEGORIES[category] || { color: '#6B7280', icon: '📌' };
+  return L.divIcon({
+    className: '',
+    html: `<div class="pin" style="background:${c.color}"><span>${c.icon}</span></div>`,
+    iconSize: [34, 34],
+    iconAnchor: [17, 34],
+    popupAnchor: [0, -36],
+  });
+}
+
+function facilityBadges(spot) {
+  return Object.entries(FACILITIES).map(([k, f]) => {
+    const has = spot.facilities && spot.facilities[k];
+    return `<span class="inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] ${has ? 'bg-pine/10 text-pine font-medium' : 'bg-gray-100 text-gray-300 line-through'}">${f.icon} ${f.label}</span>`;
+  }).join(' ');
+}
+
+function popupHtml(spot) {
+  const c = CATEGORIES[spot.category] || {};
+  const isMember = spot.source === 'member';
+  const isOwner = isMember && auth.userId && spot.authorId === auth.userId;
+  const editUrl = isMember ? null : CONFIG.githubEditUrl;
+  const ss = SLEEP_STATUS[sleepStatusOf(spot)];
+  const stat = spotStats[spot.id];
+  const isFav = favoriteSpotIds.has(spot.id);
+  const inRoute = isInRoute(spot.id);
+  const photos = spot.photos || [];
+
+  return `
+    <div class="space-y-2">
+      <div>
+        <span class="inline-block text-[10px] font-bold text-white rounded-full px-2 py-0.5 mb-1" style="background:${c.color}">${c.icon || ''} ${c.label || spot.category}</span>
+        <span class="inline-block text-[10px] font-bold rounded-full px-2 py-0.5 mb-1 ml-1" style="background:${ss.bg};color:${ss.fg}">${ss.icon} ${ss.label}</span>
+        ${stat ? `<span class="inline-block text-[10px] font-bold rounded-full px-2 py-0.5 mb-1 ml-1" style="background:#FDF6EA;color:#B97F25">★${stat.avg.toFixed(1)}（${stat.count}）</span>` : ''}
+        <h3 class="font-bold text-[15px] leading-snug" style="font-family:'Zen Maru Gothic',sans-serif">${esc(spot.name)}</h3>
+        ${isMember ? `<p class="text-[11px] text-gray-400 mt-0.5">投稿者: ${esc(spot.authorNickname || '会員')}</p>` : ''}
+      </div>
+      ${photos.length ? `
+      <div class="flex gap-1.5 overflow-x-auto pb-0.5">
+        ${photos.map(id => `<a href="${drivePhotoUrl(id, 1200)}" target="_blank" rel="noopener" class="shrink-0">
+          <img src="${drivePhotoUrl(id, 300)}" alt="${esc(spot.name)}の写真" class="w-20 h-20 object-cover rounded-lg border border-pine/10" loading="lazy" />
+        </a>`).join('')}
+      </div>` : ''}
+      ${spot.description ? `<p class="text-xs text-gray-600 leading-relaxed">${esc(spot.description)}</p>` : ''}
+      <div class="flex flex-wrap gap-1">${facilityBadges(spot)}</div>
+      <dl class="text-xs text-gray-600 space-y-0.5">
+        ${spot.openHours ? `<div><dt class="inline font-bold">営業: </dt><dd class="inline">${esc(spot.openHours)}</dd></div>` : ''}
+        ${spot.fee ? `<div><dt class="inline font-bold">料金: </dt><dd class="inline">${esc(spot.fee)}</dd></div>` : ''}
+        ${spot.tel ? `<div><dt class="inline font-bold">電話: </dt><dd class="inline"><a href="tel:${esc(String(spot.tel).replace(/[^0-9+]/g, ''))}" class="underline" style="color:#16352B">${esc(spot.tel)}</a></dd></div>` : ''}
+        ${spot.notes ? `<div><dt class="inline font-bold">備考: </dt><dd class="inline">${esc(spot.notes)}</dd></div>` : ''}
+      </dl>
+      <div class="flex gap-2 pt-1">
+        <a href="https://www.google.com/maps/dir/?api=1&destination=${spot.lat},${spot.lng}" target="_blank" rel="noopener"
+           class="flex-1 text-center text-xs font-bold text-white rounded-lg px-2 py-1.5" style="background:#16352B">経路を調べる</a>
+        <button type="button" onclick="handleShareSpot('${spot.id}')"
+           class="shrink-0 text-center text-xs font-bold rounded-lg px-2.5 py-1.5 border-2" style="border-color:#16352B33;color:#16352B">🔗共有</button>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <button type="button" onclick="toggleRouteSpot('${spot.id}')"
+           class="text-center text-xs font-bold rounded-lg px-2 py-1.5 border-2" style="border-color:${inRoute ? '#16352B' : '#16352B33'};background:${inRoute ? '#16352B' : 'transparent'};color:${inRoute ? '#fff' : '#16352B'}">${inRoute ? '✅ ルート追加済み' : '🗺️＋ ルートに追加'}</button>
+        <button type="button" onclick="handleToggleFavorite('${spot.id}')"
+           class="text-center text-xs font-bold rounded-lg px-2 py-1.5 border-2" style="border-color:${isFav ? '#E8A33D' : '#16352B33'};background:${isFav ? '#FDF6EA' : 'transparent'};color:${isFav ? '#B97F25' : '#16352B'}">${isFav ? '⭐ お気に入り済み' : '☆ お気に入り'}</button>
+      </div>
+      ${editUrl ? `<a href="${editUrl}" target="_blank" rel="noopener"
+           class="block text-center text-xs font-bold rounded-lg px-2 py-1.5 border-2" style="border-color:#E8A33D;color:#B97F25">✏️ この情報を修正する</a>` : ''}
+      ${auth.token ? `
+      <div class="pt-2 border-t border-pine/10">
+        <div class="flex items-center justify-between mb-1">
+          <p class="text-xs font-bold text-pine">🚗 行った記録</p>
+          <button type="button" onclick="handleAddVisit('${spot.id}')"
+            class="text-[11px] font-bold rounded-lg px-2 py-1 border-2" style="border-color:#4C8C5C;color:#4C8C5C">＋ 記録する</button>
+        </div>
+        <div id="visit-list-${spot.id}">${visitListHtml(spot.id)}</div>
+      </div>` : `
+      <p class="text-[11px] text-gray-400 pt-1">行った記録をつけるには<button type="button" class="auth-btn-link" onclick="openLoginModal()">ログイン</button>してください</p>`}
+      ${isOwner ? `
+      <div class="flex gap-2">
+        <button type="button" onclick="openEditSpotModal('${spot.id}')"
+          class="flex-1 text-center text-xs font-bold rounded-lg px-2 py-1.5 border-2" style="border-color:#3B82A0;color:#3B82A0">編集する</button>
+        <button type="button" onclick="handleDeleteSpot('${spot.id}')"
+          class="flex-1 text-center text-xs font-bold rounded-lg px-2 py-1.5 border-2" style="border-color:#C4604F;color:#C4604F">削除する</button>
+      </div>` : ''}
+      <div class="pt-2 border-t border-pine/10">
+        <p class="text-xs font-bold text-pine mb-1">💬 コメント・評価</p>
+        <div id="comments-${spot.id}" class="comments-list text-xs text-gray-500">読み込み中…</div>
+        ${auth.token ? `
+        <div class="mt-2 space-y-1.5">
+          <div id="rating-input-${spot.id}" class="flex items-center gap-0.5" data-rating="0">
+            ${[1, 2, 3, 4, 5].map(n => `<button type="button" class="rating-star text-lg text-gray-300 leading-none" data-val="${n}" onclick="setCommentRating('${spot.id}',${n})">★</button>`).join('')}
+            <button type="button" class="text-[10px] text-gray-400 ml-1" onclick="setCommentRating('${spot.id}',0)">評価なし</button>
+          </div>
+          <div class="flex gap-1.5">
+            <input type="text" id="comment-input-${spot.id}" placeholder="コメントを書く…" maxlength="300"
+              class="auth-input flex-1 !py-1.5 !text-xs" />
+            <button type="button" onclick="handleAddComment('${spot.id}')"
+              class="shrink-0 rounded-lg px-3 text-xs font-bold text-white" style="background:#E8A33D">送信</button>
+          </div>
+        </div>` : `
+        <p class="text-[11px] text-gray-400 mt-1.5">コメント・評価をするには<button type="button" class="auth-btn-link" onclick="openLoginModal()">ログイン</button>してください</p>`}
+      </div>
+    </div>`;
+}
+
+function refreshOpenPopupContent(spotId) {
+  const spot = allSpots.find(s => s.id === spotId);
+  const m = markers[spotId];
+  if (spot && m && m.isPopupOpen && m.isPopupOpen()) {
+    m.setPopupContent(popupHtml(spot));
+    loadCommentsIntoPopup(spotId);
+  }
+}
+
+function updateSpotCardInPlace(spotId) {
+  const spot = allSpots.find(s => s.id === spotId);
+  if (!spot) return;
+  document.querySelectorAll(`.spot-card[data-id="${spotId}"]`).forEach(el => {
+    const fresh = spotCard(spot);
+    if (el.classList.contains('active')) fresh.classList.add('active');
+    el.replaceWith(fresh);
+  });
+}
+
+function spotCard(spot) {
+  const c = CATEGORIES[spot.category] || {};
+  const ss = SLEEP_STATUS[sleepStatusOf(spot)];
+  const stat = spotStats[spot.id];
+  const thumb = spot.photos && spot.photos[0] ? drivePhotoUrl(spot.photos[0], 120) : null;
+  const el = document.createElement('button');
+  el.type = 'button';
+  el.dataset.id = spot.id;
+  el.className = 'spot-card w-full text-left bg-white rounded-xl border-2 border-pine/10 p-3 hover:border-lantern/60 transition-colors';
+  el.innerHTML = `
+    <div class="flex items-start gap-2.5">
+      ${thumb
+        ? `<img src="${thumb}" alt="" class="shrink-0 w-8 h-8 rounded-full object-cover" loading="lazy" />`
+        : `<span class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-base" style="background:${c.color}22">${c.icon || '📌'}</span>`}
+      <div class="min-w-0">
+        <div class="flex items-center gap-1 flex-wrap">
+          <p class="font-maru font-bold text-sm leading-snug truncate">${esc(spot.name)}</p>
+          <span class="shrink-0 text-[9px] font-bold rounded-full px-1.5 py-0.5" style="background:${ss.bg};color:${ss.fg}">${ss.icon} ${ss.label}</span>
+          ${favoriteSpotIds.has(spot.id) ? `<span class="shrink-0 text-[11px]" aria-label="お気に入り登録済み">⭐</span>` : ''}
+          ${visitsForSpot(spot.id).length ? `<span class="shrink-0 text-[9px] font-bold rounded-full px-1.5 py-0.5 bg-[#E7F4EA] text-[#2F7A44]" aria-label="行った記録あり">✅ 行った</span>` : ''}
+        </div>
+        <p class="text-[11px] text-gray-500 mt-0.5">${c.label || ''}${spot.fee ? ' ・ ' + esc(spot.fee) : ''}${stat ? ` ・ ★${stat.avg.toFixed(1)}（${stat.count}）` : ''}</p>
+        <div class="flex flex-wrap gap-1 mt-1.5">${
+          Object.entries(FACILITIES)
+            .filter(([k]) => spot.facilities && spot.facilities[k])
+            .map(([, f]) => `<span class="text-[10px] bg-mist rounded px-1 py-0.5">${f.icon}${f.label}</span>`).join('')
+        }</div>
+      </div>
+    </div>`;
+  el.addEventListener('click', () => focusSpot(spot.id, true));
+  return el;
+}
+
+function popupAutoPanOptions() {
+  // ヘッダー・検索バー・フィルターチップ・ボトムシートなど、地図の上に重なる
+  // 自前UIの実際の高さを測って、それらに隠れない範囲にポップアップを収める
+  const isMobileLayout = window.innerWidth < 768;
+  const headerEl = document.querySelector('header');
+  const headerH = headerEl ? headerEl.getBoundingClientRect().height : 0;
+
+  let topReserved = headerH + 12;
+  if (isMobileLayout) {
+    const overlayEl = document.getElementById('mobile-search-overlay');
+    if (overlayEl) topReserved += overlayEl.getBoundingClientRect().height + 8;
+  }
+
+  let bottomReserved = 12;
+  if (isMobileLayout) {
+    const sheetEl = document.getElementById('sheet');
+    if (sheetEl) bottomReserved += Math.max(0, window.innerHeight - sheetEl.getBoundingClientRect().top);
+  }
+
+  const availableH = Math.max(200, window.innerHeight - topReserved - bottomReserved);
+  return {
+    autoPanPaddingTopLeft: [16, Math.round(topReserved)],
+    autoPanPaddingBottomRight: [16, Math.round(bottomReserved)],
+    maxHeight: Math.round(availableH),
+  };
+}
+
+function render() {
+  // マーカー再構築（クラスタリング利用・ポップアップ内容は開いたときに生成して高速化）
+  markerClusterGroup.clearLayers();
+  markers = {};
+  const spots = filteredSpots();
+  const newMarkers = [];
+  const popupOpts = { closeButton: true, ...popupAutoPanOptions() };
+
+  spots.forEach(spot => {
+    // 1件の描画失敗（不正データ等）で他のスポットまで巻き込まれないよう分離
+    try {
+      const m = L.marker([spot.lat, spot.lng], { icon: makeIcon(spot.category), title: spot.name })
+        .bindPopup('', popupOpts); // 内容はpopupopen時に設定（初期描画を軽くする）
+      m.spotId = spot.id;
+      m.on('click', () => highlightCard(spot.id));
+      markers[spot.id] = m;
+      newMarkers.push(m);
+    } catch (e) {
+      console.error('スポットの描画に失敗しました:', spot.id, spot.name, e);
+    }
+  });
+  markerClusterGroup.addLayers(newMarkers);
+
+  // リスト再構築（PC・スマホ）：件数が多い場合は表示上限を設けて動作を軽く保つ
+  const listSpots = spots.slice(0, LIST_RENDER_LIMIT);
+  for (const id of ['spot-list-pc', 'spot-list-sp']) {
+    const list = document.getElementById(id);
+    list.innerHTML = '';
+    if (spots.length === 0) {
+      list.innerHTML = `<div class="text-center text-sm text-gray-400 py-10">条件に合うスポットがありません。<br>${searchQuery.trim() ? '検索キーワードやフィルターを変更してみてください。' : 'フィルターを変更してみてください。'}<br>
+        <button type="button" class="auth-btn-link mt-2" onclick="resetFilters()">🔄 フィルターをリセット</button></div>`;
+    } else {
+      const frag = document.createDocumentFragment();
+      listSpots.forEach(s => {
+        try { frag.appendChild(spotCard(s)); }
+        catch (e) { console.error('カードの描画に失敗しました:', s.id, s.name, e); }
+      });
+      list.appendChild(frag);
+      if (spots.length > LIST_RENDER_LIMIT) {
+        const note = document.createElement('p');
+        note.className = 'text-center text-[11px] text-gray-400 py-3 px-2';
+        note.textContent = `上位${LIST_RENDER_LIMIT}件のみ一覧表示しています（該当${spots.length}件・地図には全件表示）。検索やフィルターで絞り込むと見やすくなります。`;
+        list.appendChild(note);
+      }
+    }
+  }
+
+  // 件数表示
+  document.getElementById('spot-count').textContent = `${spots.length} / ${allSpots.length} 件`;
+  document.getElementById('sheet-count').textContent = `(${spots.length})`;
+}
+
+function focusSpot(id, fromList = false) {
+  const m = markers[id];
+  if (!m) return;
+  markerClusterGroup.zoomToShowLayer(m, () => {
+    m.openPopup();
+    highlightCard(id);
+  });
+  if (fromList && window.innerWidth < 768) setSheet('peek'); // スマホはシートを下げてマップを見せる
+}
+
+/* =====================================================================
+ * ④ スポットの個別URL共有
+ * ===================================================================== */
+function spotShareUrl(id) {
+  const url = new URL(window.location.href);
+  url.hash = '';
+  url.searchParams.set('spot', id);
+  return url.toString();
+}
+
+async function handleShareSpot(id) {
+  const spot = allSpots.find(s => s.id === id);
+  const url = spotShareUrl(id);
+  const title = 'くるま旅マップ' + (spot ? '：' + spot.name : '');
+  if (navigator.share) {
+    try { await navigator.share({ title, url }); return; } catch (e) { /* キャンセル等は無視 */ return; }
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    alert('リンクをコピーしました。');
+  } catch (e) {
+    prompt('このリンクをコピーしてください:', url);
+  }
+}
+
+// ポップアップの開閉に合わせてURLを同期（ブラウザ履歴は汚さずreplaceStateのみ使用）＋内容生成・コメント読込
+map.on('popupopen', e => {
+  const spotId = e.popup._source && e.popup._source.spotId;
+  if (spotId) {
+    const spot = allSpots.find(s => s.id === spotId);
+    if (spot) e.popup.setContent(popupHtml(spot)); // 内容はここで初めて生成（一覧描画を軽くするため）
+    history.replaceState(null, '', spotShareUrl(spotId));
+    loadCommentsIntoPopup(spotId);
+  }
+});
+map.on('popupclose', () => {
+  const url = new URL(window.location.href);
+  if (url.searchParams.has('spot')) {
+    url.searchParams.delete('spot');
+    history.replaceState(null, '', url.pathname + (url.search || '') + url.hash);
   }
 });
 
-function clearSelectedPhoto() {
-  selectedPhotoDataUrl = null;
-  photoInput.value = '';
-  photoPreviewWrap.style.display = 'none';
-  photoPreview.src = '';
-  photoProcessing.textContent = '';
-}
-
-// ファイルをJPEGに変換しつつ、長辺1280px程度・約700KB以下を目安に段階的に縮小する
-async function resizeImageToDataUrl(file) {
-  const [dataUrl, orientation] = await Promise.all([readFileAsDataUrl(file), getExifOrientation(file)]);
-  const img = await loadImage(dataUrl);
-
-  let maxDim = 1280;
-  let quality = 0.82;
-  let result = drawResizedJpeg(img, orientation, maxDim, quality);
-
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const approxBytes = Math.ceil(result.length * 3 / 4);
-    if (approxBytes <= TARGET_PHOTO_BYTES || (maxDim <= 640 && quality <= 0.5)) break;
-    quality = Math.max(0.5, quality - 0.15);
-    maxDim = Math.max(640, Math.round(maxDim * 0.85));
-    result = drawResizedJpeg(img, orientation, maxDim, quality);
+// 初回読込時：URLに ?spot=ID があれば該当スポットを開く
+function openSpotFromUrl() {
+  const id = new URLSearchParams(window.location.search).get('spot');
+  if (!id) return;
+  if (markers[id]) { focusSpot(id); return; }
+  // フィルターで除外されている場合はカテゴリを全ON・設備条件クリアして再表示
+  if (allSpots.some(s => s.id === id)) {
+    Object.keys(CATEGORIES).forEach(k => activeCats.add(k));
+    activeFacs.clear();
+    searchQuery = '';
+    syncChipStyles();
+    render();
+    if (markers[id]) focusSpot(id);
   }
-  return result;
 }
 
-function readFileAsDataUrl(file) {
+function highlightCard(id) {
+  document.querySelectorAll('.spot-card').forEach(el => {
+    el.classList.toggle('active', el.dataset.id === id);
+  });
+}
+
+/* =====================================================================
+ * 現在地取得
+ * ===================================================================== */
+let myLocationMarker = null;
+document.getElementById('locate-btn').addEventListener('click', () => {
+  if (!navigator.geolocation) { alert('お使いのブラウザは位置情報に対応していません。'); return; }
+  const btn = document.getElementById('locate-btn');
+  btn.textContent = '⏳';
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      const { latitude, longitude, accuracy } = pos.coords;
+      if (myLocationMarker) map.removeLayer(myLocationMarker);
+      myLocationMarker = L.layerGroup([
+        L.circle([latitude, longitude], { radius: accuracy, color: '#3B82A0', weight: 1, fillOpacity: 0.1 }),
+        L.circleMarker([latitude, longitude], { radius: 8, color: '#fff', weight: 3, fillColor: '#3B82A0', fillOpacity: 1 }),
+      ]).addTo(map);
+      map.flyTo([latitude, longitude], 13, { duration: 0.8 });
+      btn.textContent = '📍';
+    },
+    err => {
+      alert('現在地を取得できませんでした。位置情報の利用を許可してください。');
+      btn.textContent = '📍';
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+});
+
+/* =====================================================================
+ * スマホ：ボトムシート（ドラッグ＆タップで peek / half / full）
+ * ===================================================================== */
+const sheet = document.getElementById('sheet');
+const grip = document.getElementById('sheet-grip');
+const SHEET_H = () => sheet.getBoundingClientRect().height;
+const SNAP = { peek: () => SHEET_H() - 96, half: () => SHEET_H() * 0.5, full: () => 0 };
+let sheetState = 'peek';
+
+function setSheet(state) {
+  sheetState = state;
+  sheet.style.transform = `translateY(${SNAP[state]()}px)`;
+}
+
+grip.addEventListener('click', () => setSheet(sheetState === 'peek' ? 'half' : 'peek'));
+
+let dragStartY = null, dragStartOffset = 0;
+grip.addEventListener('pointerdown', e => {
+  dragStartY = e.clientY;
+  dragStartOffset = SNAP[sheetState]();
+  sheet.style.transition = 'none';
+  grip.setPointerCapture(e.pointerId);
+});
+grip.addEventListener('pointermove', e => {
+  if (dragStartY === null) return;
+  const offset = Math.min(Math.max(dragStartOffset + (e.clientY - dragStartY), 0), SHEET_H() - 60);
+  sheet.style.transform = `translateY(${offset}px)`;
+});
+grip.addEventListener('pointerup', e => {
+  if (dragStartY === null) return;
+  const moved = e.clientY - dragStartY;
+  sheet.style.transition = '';
+  // 移動方向でスナップ先を決定
+  const order = ['full', 'half', 'peek'];
+  let idx = order.indexOf(sheetState);
+  if (moved > 50) idx = Math.min(idx + 1, 2);
+  else if (moved < -50) idx = Math.max(idx - 1, 0);
+  setSheet(order[idx]);
+  dragStartY = null;
+});
+
+/* =====================================================================
+ * ユーティリティ
+ * ===================================================================== */
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+}
+
+window.addEventListener('resize', () => { if (window.innerWidth < 768) setSheet(sheetState); });
+
+/* =====================================================================
+ * 会員機能：API通信
+ * ===================================================================== */
+async function callApi(action, payload = {}) {
+  const res = await fetch(CONFIG.gasUrl, {
+    method: 'POST',
+    // text/plain にすることでプリフライト(OPTIONS)を回避（GAS標準パターン）
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action, ...payload }),
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+
+async function loadMemberSpots() {
+  const res = await fetch(CONFIG.gasUrl + '?action=listSpots', { cache: 'no-cache' });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error + (json.message ? ': ' + json.message : ''));
+  return normalizeSpotList(json.spots);
+}
+
+/* =====================================================================
+ * 会員機能：セッション管理
+ * ===================================================================== */
+function saveSession() {
+  localStorage.setItem('kurumatabi_auth', JSON.stringify({ token: auth.token, userId: auth.userId, nickname: auth.nickname }));
+}
+function clearSession() {
+  localStorage.removeItem('kurumatabi_auth');
+  auth.token = null; auth.userId = null; auth.nickname = null; auth.mustChangePassword = false;
+}
+async function restoreSession() {
+  const raw = localStorage.getItem('kurumatabi_auth');
+  if (!raw) return;
+  try {
+    const saved = JSON.parse(raw);
+    auth.token = saved.token; auth.userId = saved.userId; auth.nickname = saved.nickname;
+    const res = await callApi('me', { token: auth.token });
+    if (!res.ok) { clearSession(); return; }
+    auth.nickname = res.nickname; auth.userId = res.userId; auth.mustChangePassword = res.mustChangePassword;
+    if (auth.mustChangePassword) openChangePasswordModal(true);
+  } catch (e) {
+    clearSession();
+  }
+  renderAuthArea();
+}
+
+function renderAuthArea() {
+  const el = document.getElementById('auth-area');
+  const postBtn = document.getElementById('post-spot-btn');
+  syncFavFilterButton();
+  syncVisitFilterButton();
+  if (auth.token) {
+    postBtn.hidden = false;
+    el.innerHTML = `
+      <div class="relative">
+        <button id="account-menu-btn" type="button"
+          class="text-xs bg-mist/10 hover:bg-mist/20 rounded-full px-3 py-1 font-medium transition-colors flex items-center gap-1">
+          👤 ${esc(auth.nickname)} さん ▾
+        </button>
+        <div id="account-menu" hidden
+          class="absolute right-0 mt-1.5 w-40 bg-white rounded-xl shadow-xl border border-pine/10 py-1.5 z-[1300] text-pine">
+          <button type="button" onclick="openMyPageModal()" class="w-full text-left px-3 py-2 text-xs font-bold hover:bg-mist">マイページ</button>
+          <button type="button" onclick="openVisitHistoryModal()" class="w-full text-left px-3 py-2 text-xs font-bold hover:bg-mist">🚗 行った記録</button>
+        </div>
+      </div>
+      <button type="button" onclick="handleLogout()"
+        class="text-xs bg-mist/10 hover:bg-mist/20 rounded-full px-3 py-1 font-bold transition-colors text-mist/90">ログアウト</button>`;
+    document.getElementById('account-menu-btn').addEventListener('click', () => {
+      const menu = document.getElementById('account-menu');
+      menu.hidden = !menu.hidden;
+    });
+  } else {
+    postBtn.hidden = true;
+    el.innerHTML = `
+      <button type="button" onclick="openLoginModal()" class="text-xs bg-mist/10 hover:bg-mist/20 rounded-full px-3 py-1 font-medium transition-colors">ログイン</button>
+      <button type="button" onclick="openRegisterModal()" class="text-xs bg-lantern text-white hover:brightness-105 rounded-full px-3 py-1 font-bold transition-colors">会員登録</button>`;
+  }
+}
+
+document.addEventListener('click', e => {
+  const menu = document.getElementById('account-menu');
+  const btn = document.getElementById('account-menu-btn');
+  if (menu && !menu.hidden && !menu.contains(e.target) && e.target !== btn) menu.hidden = true;
+});
+
+function handleLogout() {
+  clearSession();
+  favoriteSpotIds = new Set();
+  visits = [];
+  showFavoritesOnly = false;
+  showVisitedOnly = false;
+  renderAuthArea();
+  syncFavFilterButton();
+  syncVisitFilterButton();
+  render();
+}
+
+/* =====================================================================
+ * 会員機能：モーダル基盤
+ * ===================================================================== */
+function openModal(html) {
+  document.getElementById('modal-box').innerHTML = html;
+  document.getElementById('modal-overlay').hidden = false;
+}
+function closeModal() {
+  document.getElementById('modal-overlay').hidden = true;
+  document.getElementById('modal-box').innerHTML = '';
+  cancelMapPickLocation(); // 位置選択中だった場合は後片付け
+  if (mapPickMarker) { map.removeLayer(mapPickMarker); mapPickMarker = null; } // 選択用の仮マーカーを除去
+}
+document.getElementById('modal-overlay').addEventListener('click', e => {
+  if (e.target.id === 'modal-overlay') closeModal();
+});
+
+function togglePw(btn) {
+  const input = btn.previousElementSibling;
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  btn.textContent = show ? '隠す' : '表示';
+}
+
+function pwFieldHtml(id, labelText) {
+  return `
+    <div>
+      <label class="auth-label" for="${id}">${labelText}</label>
+      <div class="pw-field">
+        <input id="${id}" type="password" class="auth-input pr-14" autocomplete="off" />
+        <button type="button" class="pw-toggle" onclick="togglePw(this)">表示</button>
+      </div>
+    </div>`;
+}
+
+/* ---------- 会員登録 ---------- */
+function openRegisterModal() {
+  openModal(`
+    <h2 class="font-maru font-bold text-lg mb-3">会員登録</h2>
+    <div class="space-y-3">
+      <div>
+        <label class="auth-label" for="reg-email">メールアドレス</label>
+        <input id="reg-email" type="email" class="auth-input" autocomplete="email" />
+      </div>
+      <div>
+        <label class="auth-label" for="reg-nickname">ニックネーム（表示名）</label>
+        <input id="reg-nickname" type="text" class="auth-input" maxlength="20" />
+      </div>
+      <div class="bg-mist rounded-lg p-3 max-h-32 overflow-y-auto text-[11px] text-gray-600 whitespace-pre-wrap leading-relaxed">${esc(TERMS_TEXT)}</div>
+      <label class="flex items-center gap-2 text-xs font-medium">
+        <input id="reg-agree" type="checkbox" class="w-4 h-4" />
+        注意事項・免責事項に同意します
+      </label>
+      <p id="reg-error" class="auth-error"></p>
+      <button type="button" id="reg-submit" class="auth-btn-primary" onclick="handleRegister()">仮パスワードを発行してメールで受け取る</button>
+      <p class="text-center text-xs">すでに会員の方は <button type="button" class="auth-btn-link" onclick="openLoginModal()">ログイン</button></p>
+    </div>`);
+}
+
+async function handleRegister() {
+  const email = document.getElementById('reg-email').value.trim();
+  const nickname = document.getElementById('reg-nickname').value.trim();
+  const agreed = document.getElementById('reg-agree').checked;
+  const errEl = document.getElementById('reg-error');
+  errEl.textContent = '';
+  if (!email || !nickname) { errEl.textContent = 'メールアドレスとニックネームを入力してください。'; return; }
+  if (!agreed) { errEl.textContent = '注意事項・免責事項への同意が必要です。'; return; }
+
+  const btn = document.getElementById('reg-submit');
+  btn.disabled = true; btn.textContent = '送信中…';
+  try {
+    const res = await callApi('register', { email, nickname, agreedTerms: true });
+    if (!res.ok) {
+      errEl.textContent = res.error === 'email_taken' ? 'このメールアドレスは既に登録されています。' : '登録に失敗しました。入力内容をご確認ください。';
+      btn.disabled = false; btn.textContent = '仮パスワードを発行してメールで受け取る';
+      return;
+    }
+    openModal(`
+      <h2 class="font-maru font-bold text-lg mb-2">登録完了</h2>
+      <p class="text-sm text-gray-600 leading-relaxed">仮パスワードをメールで送信しました。メールをご確認のうえ、ログインしてください。</p>
+      <button type="button" class="auth-btn-primary mt-4" onclick="openLoginModal()">ログイン画面へ</button>`);
+  } catch (e) {
+    errEl.textContent = '通信エラーが発生しました。時間をおいて再度お試しください。';
+    btn.disabled = false; btn.textContent = '仮パスワードを発行してメールで受け取る';
+  }
+}
+
+/* ---------- ログイン ---------- */
+function openLoginModal() {
+  openModal(`
+    <h2 class="font-maru font-bold text-lg mb-3">ログイン</h2>
+    <div class="space-y-3">
+      <div>
+        <label class="auth-label" for="login-email">メールアドレス</label>
+        <input id="login-email" type="email" class="auth-input" autocomplete="email" />
+      </div>
+      ${pwFieldHtml('login-password', 'パスワード（仮パスワード可）')}
+      <p id="login-error" class="auth-error"></p>
+      <button type="button" id="login-submit" class="auth-btn-primary" onclick="handleLogin()">ログイン</button>
+      <div class="flex justify-between text-xs pt-1">
+        <button type="button" class="auth-btn-link" onclick="openForgotPasswordModal()">パスワードを忘れた方</button>
+        <button type="button" class="auth-btn-link" onclick="openRegisterModal()">新規会員登録</button>
+      </div>
+    </div>`);
+}
+
+async function handleLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  if (!email || !password) { errEl.textContent = 'メールアドレスとパスワードを入力してください。'; return; }
+
+  const btn = document.getElementById('login-submit');
+  btn.disabled = true; btn.textContent = 'ログイン中…';
+  try {
+    const res = await callApi('login', { email, password });
+    if (!res.ok) {
+      errEl.textContent = 'メールアドレスまたはパスワードが正しくありません。';
+      btn.disabled = false; btn.textContent = 'ログイン';
+      return;
+    }
+    auth.token = res.token; auth.userId = res.userId; auth.nickname = res.nickname; auth.mustChangePassword = res.mustChangePassword;
+    saveSession();
+    renderAuthArea();
+    if (auth.mustChangePassword) {
+      openChangePasswordModal(true);
+    } else {
+      closeModal();
+    }
+    // 地図の再描画（スポット件数が多いと重い）は、モーダルを閉じる操作が先に画面に反映されてから行う
+    setTimeout(() => {
+      render();
+      loadMemberSpots().then(spots => { allSpots = allSpots.filter(s => s.source !== 'member').concat(spots); render(); }).catch(e => { console.warn('ログイン後の一覧再取得に失敗しました:', e.message); showDataLoadWarning(); });
+      loadFavorites().then(() => { syncFavFilterButton(); render(); }).catch(() => {});
+      loadVisits().then(() => { syncVisitFilterButton(); render(); }).catch(() => {});
+    }, 0);
+  } catch (e) {
+    errEl.textContent = '通信エラーが発生しました。時間をおいて再度お試しください。';
+    btn.disabled = false; btn.textContent = 'ログイン';
+  }
+}
+
+/* ---------- パスワード再発行 ---------- */
+function openForgotPasswordModal() {
+  openModal(`
+    <h2 class="font-maru font-bold text-lg mb-3">パスワードを忘れた方</h2>
+    <p class="text-xs text-gray-500 mb-3">登録済みのメールアドレスに、新しい仮パスワードを送信します。</p>
+    <div class="space-y-3">
+      <div>
+        <label class="auth-label" for="forgot-email">メールアドレス</label>
+        <input id="forgot-email" type="email" class="auth-input" autocomplete="email" />
+      </div>
+      <p id="forgot-error" class="auth-error"></p>
+      <button type="button" id="forgot-submit" class="auth-btn-primary" onclick="handleForgotPassword()">仮パスワードを再発行する</button>
+      <p class="text-center text-xs"><button type="button" class="auth-btn-link" onclick="openLoginModal()">ログイン画面に戻る</button></p>
+    </div>`);
+}
+
+async function handleForgotPassword() {
+  const email = document.getElementById('forgot-email').value.trim();
+  const errEl = document.getElementById('forgot-error');
+  errEl.textContent = '';
+  if (!email) { errEl.textContent = 'メールアドレスを入力してください。'; return; }
+
+  const btn = document.getElementById('forgot-submit');
+  btn.disabled = true; btn.textContent = '送信中…';
+  try {
+    await callApi('forgotPassword', { email });
+    openModal(`
+      <h2 class="font-maru font-bold text-lg mb-2">送信しました</h2>
+      <p class="text-sm text-gray-600 leading-relaxed">登録がある場合、新しい仮パスワードをメールで送信しました。メールをご確認のうえ、ログインしてください。</p>
+      <button type="button" class="auth-btn-primary mt-4" onclick="openLoginModal()">ログイン画面へ</button>`);
+  } catch (e) {
+    errEl.textContent = '通信エラーが発生しました。時間をおいて再度お試しください。';
+    btn.disabled = false; btn.textContent = '仮パスワードを再発行する';
+  }
+}
+
+/* ---------- 初回ログイン時 / マイページからのパスワード変更 ---------- */
+function openChangePasswordModal(forced = false) {
+  openModal(`
+    <h2 class="font-maru font-bold text-lg mb-2">パスワード変更</h2>
+    ${forced ? `<p class="text-xs text-gray-500 mb-3">初回ログインです。新しいパスワードを設定してください。</p>` : ''}
+    <div class="space-y-3">
+      ${pwFieldHtml('newpw-1', '新しいパスワード（8文字以上）')}
+      ${pwFieldHtml('newpw-2', '新しいパスワード（確認）')}
+      <p id="newpw-error" class="auth-error"></p>
+      <button type="button" id="newpw-submit" class="auth-btn-primary" onclick="handleChangePassword(${forced})">変更する</button>
+      ${!forced ? `<p class="text-center text-xs"><button type="button" class="auth-btn-link" onclick="openMyPageModal()">戻る</button></p>` : ''}
+    </div>`);
+}
+
+async function handleChangePassword(forced) {
+  const p1 = document.getElementById('newpw-1').value;
+  const p2 = document.getElementById('newpw-2').value;
+  const errEl = document.getElementById('newpw-error');
+  errEl.textContent = '';
+  if (p1.length < 8) { errEl.textContent = '8文字以上で入力してください。'; return; }
+  if (p1 !== p2) { errEl.textContent = '確認用パスワードが一致しません。'; return; }
+
+  const btn = document.getElementById('newpw-submit');
+  btn.disabled = true; btn.textContent = '変更中…';
+  try {
+    const res = await callApi('changePassword', { token: auth.token, newPassword: p1 });
+    if (!res.ok) { errEl.textContent = '変更に失敗しました。'; btn.disabled = false; btn.textContent = '変更する'; return; }
+    auth.mustChangePassword = false;
+    if (forced) { closeModal(); } else { openMyPageModal('パスワードを変更しました。'); }
+  } catch (e) {
+    errEl.textContent = '通信エラーが発生しました。時間をおいて再度お試しください。';
+    btn.disabled = false; btn.textContent = '変更する';
+  }
+}
+
+/* ---------- マイページ（ニックネーム変更） ---------- */
+function openMyPageModal(message = '') {
+  openModal(`
+    <h2 class="font-maru font-bold text-lg mb-3">マイページ</h2>
+    ${message ? `<p class="text-xs font-bold text-[#4C8C5C] mb-3">${esc(message)}</p>` : ''}
+    <div class="space-y-3">
+      <div>
+        <label class="auth-label" for="mypage-nickname">ニックネーム</label>
+        <input id="mypage-nickname" type="text" class="auth-input" maxlength="20" value="${esc(auth.nickname)}" />
+      </div>
+      <p id="mypage-error" class="auth-error"></p>
+      <button type="button" id="mypage-submit" class="auth-btn-primary" onclick="handleUpdateNickname()">ニックネームを変更する</button>
+      <hr class="border-pine/10" />
+      <button type="button" class="auth-btn-primary" style="background:#3B82A0" onclick="openChangePasswordModal(false)">パスワードを変更する</button>
+    </div>`);
+}
+
+async function handleUpdateNickname() {
+  const nickname = document.getElementById('mypage-nickname').value.trim();
+  const errEl = document.getElementById('mypage-error');
+  errEl.textContent = '';
+  if (!nickname) { errEl.textContent = 'ニックネームを入力してください。'; return; }
+
+  const btn = document.getElementById('mypage-submit');
+  btn.disabled = true; btn.textContent = '変更中…';
+  try {
+    const res = await callApi('updateNickname', { token: auth.token, nickname });
+    if (!res.ok) { errEl.textContent = '変更に失敗しました。'; btn.disabled = false; btn.textContent = 'ニックネームを変更する'; return; }
+    auth.nickname = res.nickname;
+    saveSession();
+    renderAuthArea();
+    openMyPageModal('ニックネームを変更しました。');
+  } catch (e) {
+    errEl.textContent = '通信エラーが発生しました。時間をおいて再度お試しください。';
+    btn.disabled = false; btn.textContent = 'ニックネームを変更する';
+  }
+}
+
+/* =====================================================================
+ * 会員機能：スポット投稿・編集・削除
+ * ===================================================================== */
+function spotFormFields(spot = {}) {
+  const catOptions = Object.entries(CATEGORIES).map(([k, c]) =>
+    `<option value="${k}" ${spot.category === k ? 'selected' : ''}>${c.icon} ${c.label}</option>`).join('');
+  const sleepOptions = Object.entries(SLEEP_STATUS).map(([k, s]) =>
+    `<option value="${k}" ${sleepStatusOf(spot) === k ? 'selected' : ''}>${s.icon} ${s.label}</option>`).join('');
+  const facChecks = Object.entries(FACILITIES).map(([k, f]) => `
+    <label class="flex items-center gap-1 text-xs bg-mist rounded-lg px-2 py-1.5">
+      <input type="checkbox" data-fac="${k}" class="spot-fac-check" ${spot.facilities && spot.facilities[k] ? 'checked' : ''} /> ${f.icon} ${f.label}
+    </label>`).join('');
+  return `
+    <div class="space-y-3">
+      <div>
+        <label class="auth-label" for="spot-name">名称</label>
+        <input id="spot-name" type="text" class="auth-input" maxlength="60" value="${esc(spot.name || '')}" />
+      </div>
+      <div>
+        <label class="auth-label" for="spot-category">カテゴリ</label>
+        <select id="spot-category" class="auth-input">${catOptions}</select>
+      </div>
+      <div>
+        <label class="auth-label" for="spot-sleep">車中泊の可否</label>
+        <select id="spot-sleep" class="auth-input">${sleepOptions}</select>
+        <p class="text-[11px] text-gray-400 mt-1">実際に確認できた内容にしてください。不明な場合は「要確認」を選んでください。</p>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="auth-label" for="spot-lat">緯度</label>
+          <input id="spot-lat" type="number" step="0.000001" class="auth-input" value="${spot.lat ?? ''}" />
+        </div>
+        <div>
+          <label class="auth-label" for="spot-lng">経度</label>
+          <input id="spot-lng" type="number" step="0.000001" class="auth-input" value="${spot.lng ?? ''}" />
+        </div>
+      </div>
+      <p class="text-[11px] text-gray-400 -mt-1.5">📍現在地から緯度経度を入力: <button type="button" class="auth-btn-link" onclick="fillCurrentLocation()">現在地を使う</button>　／　<button type="button" class="auth-btn-link" onclick="startMapPickLocation()">🗺️ 地図をタップして選択</button></p>
+      <div>
+        <div class="flex items-center justify-between">
+          <label class="auth-label !mb-0" for="spot-desc">説明</label>
+          <button type="button" id="voice-input-btn" class="auth-btn-link" onclick="toggleVoiceRecording()">🎙️ 音声で入力</button>
+        </div>
+        <textarea id="spot-desc" rows="3" class="auth-input mt-1" maxlength="300">${esc(spot.description || '')}</textarea>
+        <p id="voice-status" class="text-[11px] text-gray-400 mt-1"></p>
+        <div id="voice-preview-wrap" hidden class="mt-1.5 p-2 rounded-lg bg-mist space-y-1.5">
+          <p class="text-[11px] font-bold text-pine/70">🎙️ 音声認識結果（内容を確認・加筆・修正してから反映してください）</p>
+          <textarea id="voice-preview-text" rows="3" class="auth-input !text-xs"></textarea>
+          <div class="flex gap-3 flex-wrap">
+            <button type="button" class="auth-btn-link" onclick="applyVoiceText('append')">説明欄に追加する</button>
+            <button type="button" class="auth-btn-link" onclick="applyVoiceText('replace')">説明欄を置き換える</button>
+            <button type="button" class="auth-btn-link" style="color:#C4604F" onclick="discardVoiceText()">この内容を破棄</button>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p class="auth-label">設備</p>
+        <div class="grid grid-cols-2 gap-1.5">${facChecks}</div>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="auth-label" for="spot-hours">営業時間</label>
+          <input id="spot-hours" type="text" class="auth-input" maxlength="60" value="${esc(spot.openHours || '')}" />
+        </div>
+        <div>
+          <label class="auth-label" for="spot-fee">料金</label>
+          <input id="spot-fee" type="text" class="auth-input" maxlength="40" value="${esc(spot.fee || '')}" />
+        </div>
+      </div>
+      <div>
+        <label class="auth-label" for="spot-tel">電話番号</label>
+        <input id="spot-tel" type="tel" class="auth-input" maxlength="20" placeholder="0X0-XXXX-XXXX" value="${esc(spot.tel || '')}" />
+      </div>
+      ${photoFieldsHtml(spot)}
+      <p id="spot-form-error" class="auth-error"></p>
+    </div>`;
+}
+
+/* ⑥ 写真フィールド（既存の投稿済み写真＋これから追加する写真） */
+function photoFieldsHtml(spot) {
+  const existing = (spot.photos || []).map(id => `
+    <div class="relative">
+      <img src="${drivePhotoUrl(id, 200)}" alt="" class="w-16 h-16 object-cover rounded-lg border border-pine/10" />
+      <button type="button" class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white border border-pine/20 text-[10px] leading-none" onclick="handleDeleteExistingPhoto('${spot.id}','${id}')" aria-label="この写真を削除">✕</button>
+    </div>`).join('');
+  return `
+    <div>
+      <p class="auth-label">写真（最大${MAX_PHOTOS_PER_SPOT}枚・自動でサイズを調整してアップロードします）</p>
+      <div id="existing-photos" class="flex flex-wrap gap-2 mb-2">${existing}</div>
+      <div id="pending-photos" class="flex flex-wrap gap-2 mb-2"></div>
+      <input type="file" id="spot-photo-input" accept="image/*" multiple class="text-xs w-full" onchange="handlePhotoFilesSelected(event)" />
+    </div>`;
+}
+
+function fillCurrentLocation() {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(pos => {
+    document.getElementById('spot-lat').value = pos.coords.latitude.toFixed(6);
+    document.getElementById('spot-lng').value = pos.coords.longitude.toFixed(6);
+  });
+}
+
+/* =====================================================================
+ * 地図をタップして緯度・経度を選択（投稿/編集フォーム用）
+ * ===================================================================== */
+let mapPickHandler = null;
+let mapPickMarker = null;
+
+function startMapPickLocation() {
+  document.getElementById('modal-overlay').hidden = true;   // フォームを一時的に隠して地図を全面表示
+  document.getElementById('map-pick-banner').hidden = false;
+  document.getElementById('map').style.cursor = 'crosshair';
+
+  mapPickHandler = (e) => {
+    const { lat, lng } = e.latlng;
+    const latEl = document.getElementById('spot-lat');
+    const lngEl = document.getElementById('spot-lng');
+    if (latEl) latEl.value = lat.toFixed(6);
+    if (lngEl) lngEl.value = lng.toFixed(6);
+
+    if (mapPickMarker) map.removeLayer(mapPickMarker);
+    mapPickMarker = L.marker([lat, lng], {
+      icon: L.divIcon({ className: '', html: '<div class="pin" style="background:#E8A33D"><span>📍</span></div>', iconSize: [34, 34], iconAnchor: [17, 34] }),
+    }).addTo(map);
+
+    endMapPickLocation();
+  };
+  map.on('click', mapPickHandler);
+}
+
+function endMapPickLocation() {
+  if (mapPickHandler) { map.off('click', mapPickHandler); mapPickHandler = null; }
+  document.getElementById('map-pick-banner').hidden = true;
+  document.getElementById('map').style.cursor = '';
+  document.getElementById('modal-overlay').hidden = false; // フォームを再表示
+}
+
+function cancelMapPickLocation() {
+  if (!mapPickHandler) return; // 選択中でなければ何もしない
+  endMapPickLocation();
+}
+
+function readSpotForm() {
+  const facilities = {};
+  document.querySelectorAll('.spot-fac-check').forEach(cb => { if (cb.checked) facilities[cb.dataset.fac] = true; });
+  return {
+    name: document.getElementById('spot-name').value.trim(),
+    category: document.getElementById('spot-category').value,
+    sleepStatus: document.getElementById('spot-sleep').value,
+    lat: parseFloat(document.getElementById('spot-lat').value),
+    lng: parseFloat(document.getElementById('spot-lng').value),
+    description: document.getElementById('spot-desc').value.trim(),
+    facilities,
+    openHours: document.getElementById('spot-hours').value.trim(),
+    fee: document.getElementById('spot-fee').value.trim(),
+    tel: document.getElementById('spot-tel').value.trim(),
+  };
+}
+
+document.getElementById('post-spot-btn').addEventListener('click', () => {
+  pendingPhotoFiles = [];
+  currentEditingSpotPhotosCount = 0;
+  openModal(`
+    <h2 class="font-maru font-bold text-lg mb-3">スポットを投稿</h2>
+    ${spotFormFields()}
+    <button type="button" id="spot-submit-btn" class="auth-btn-primary mt-1" onclick="handleSubmitSpot()">投稿する</button>`);
+});
+
+async function handleSubmitSpot() {
+  const d = readSpotForm();
+  const errEl = document.getElementById('spot-form-error');
+  errEl.textContent = '';
+  if (!d.name || isNaN(d.lat) || isNaN(d.lng)) { errEl.textContent = '名称・緯度・経度は必須です。'; return; }
+
+  const btn = document.getElementById('spot-submit-btn');
+  btn.disabled = true; btn.textContent = '投稿中…';
+  try {
+    const res = await callApi('submitSpot', { token: auth.token, spot: d });
+    if (!res.ok) { errEl.textContent = '投稿に失敗しました。'; btn.disabled = false; btn.textContent = '投稿する'; return; }
+    if (pendingPhotoFiles.length) {
+      btn.textContent = '写真をアップロード中…';
+      await uploadPendingPhotos(res.id);
+    }
+    closeModal();
+    try {
+      const spots = await loadMemberSpots();
+      allSpots = allSpots.filter(s => s.source !== 'member').concat(spots);
+      render();
+    } catch (e2) {
+      console.warn('投稿後の一覧再取得に失敗しました:', e2.message);
+      showDataLoadWarning();
+    }
+  } catch (e) {
+    errEl.textContent = '通信エラーが発生しました。時間をおいて再度お試しください。';
+    btn.disabled = false; btn.textContent = '投稿する';
+  }
+}
+
+function openEditSpotModal(spotId) {
+  const spot = allSpots.find(s => s.id === spotId);
+  if (!spot) return;
+  pendingPhotoFiles = [];
+  currentEditingSpotPhotosCount = (spot.photos || []).length;
+  openModal(`
+    <h2 class="font-maru font-bold text-lg mb-3">スポットを編集</h2>
+    ${spotFormFields(spot)}
+    <button type="button" id="spot-submit-btn" class="auth-btn-primary mt-1" onclick="handleUpdateSpot('${spotId}')">更新する</button>`);
+}
+
+async function handleUpdateSpot(spotId) {
+  const d = readSpotForm();
+  const errEl = document.getElementById('spot-form-error');
+  errEl.textContent = '';
+  if (!d.name || isNaN(d.lat) || isNaN(d.lng)) { errEl.textContent = '名称・緯度・経度は必須です。'; return; }
+
+  const btn = document.getElementById('spot-submit-btn');
+  btn.disabled = true; btn.textContent = '更新中…';
+  try {
+    const res = await callApi('updateSpot', { token: auth.token, spotId, spot: d });
+    if (!res.ok) { errEl.textContent = '更新に失敗しました。'; btn.disabled = false; btn.textContent = '更新する'; return; }
+    if (pendingPhotoFiles.length) {
+      btn.textContent = '写真をアップロード中…';
+      await uploadPendingPhotos(spotId);
+    }
+    closeModal();
+    try {
+      const spots = await loadMemberSpots();
+      allSpots = allSpots.filter(s => s.source !== 'member').concat(spots);
+      render();
+    } catch (e2) {
+      console.warn('更新後の一覧再取得に失敗しました:', e2.message);
+      showDataLoadWarning();
+    }
+  } catch (e) {
+    errEl.textContent = '通信エラーが発生しました。時間をおいて再度お試しください。';
+    btn.disabled = false; btn.textContent = '更新する';
+  }
+}
+
+async function handleDeleteSpot(spotId) {
+  if (!confirm('この投稿を削除しますか？関連するコメント・写真も削除されます。')) return;
+  try {
+    const res = await callApi('deleteSpot', { token: auth.token, spotId });
+    if (!res.ok) { alert('削除に失敗しました。'); return; }
+    map.closePopup();
+    try {
+      const spots = await loadMemberSpots();
+      allSpots = allSpots.filter(s => s.source !== 'member').concat(spots);
+      render();
+    } catch (e2) {
+      console.warn('削除後の一覧再取得に失敗しました:', e2.message);
+      showDataLoadWarning();
+    }
+  } catch (e) {
+    alert('通信エラーが発生しました。時間をおいて再度お試しください。');
+  }
+}
+
+/* =====================================================================
+ * ⑥ 写真アップロード（Googleドライブ・クライアント側で自動リサイズ）
+ * ===================================================================== */
+function resizeImageToBase64(file, maxDim = 1600, quality = 0.82) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = (e) => resolve(e.target.result);
-    reader.onerror = () => reject(new Error('file read failed'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          const scale = maxDim / Math.max(width, height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality).split(',')[1]); // base64のみ（プレフィックス除去）
+      };
+      img.onerror = () => reject(new Error('image_decode_failed'));
+      img.src = reader.result;
+    };
+    reader.onerror = () => reject(new Error('file_read_failed'));
     reader.readAsDataURL(file);
   });
 }
 
-function loadImage(src) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('image load failed'));
-    img.src = src;
+function handlePhotoFilesSelected(e) {
+  const room = MAX_PHOTOS_PER_SPOT - currentEditingSpotPhotosCount - pendingPhotoFiles.length;
+  const files = Array.from(e.target.files).slice(0, Math.max(room, 0));
+  if (files.length < e.target.files.length) alert(`写真は最大${MAX_PHOTOS_PER_SPOT}枚までです。`);
+  pendingPhotoFiles.push(...files);
+  e.target.value = '';
+  renderPendingPhotos();
+}
+
+function renderPendingPhotos() {
+  const box = document.getElementById('pending-photos');
+  if (!box) return;
+  box.innerHTML = '';
+  pendingPhotoFiles.forEach((file, idx) => {
+    const url = URL.createObjectURL(file);
+    const div = document.createElement('div');
+    div.className = 'relative';
+    div.innerHTML = `
+      <img src="${url}" alt="" class="w-16 h-16 object-cover rounded-lg border-2 border-lantern/60" />
+      <button type="button" class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white border border-pine/20 text-[10px] leading-none" aria-label="この写真を選択解除">✕</button>`;
+    div.querySelector('button').addEventListener('click', () => { pendingPhotoFiles.splice(idx, 1); renderPendingPhotos(); });
+    box.appendChild(div);
   });
 }
 
-// スマートフォン写真の向き情報(EXIF Orientation)を読み取る。取得できない場合は1(補正なし)を返す。
-function getExifOrientation(file) {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const view = new DataView(e.target.result);
-        if (view.getUint16(0, false) !== 0xFFD8) { resolve(1); return; }
-        const length = view.byteLength;
-        let offset = 2;
-        while (offset < length) {
-          const marker = view.getUint16(offset, false);
-          offset += 2;
-          if (marker === 0xFFE1) {
-            if (view.getUint32(offset + 2, false) !== 0x45786966) { resolve(1); return; }
-            const tiffOffset = offset + 8;
-            const little = view.getUint16(tiffOffset, false) === 0x4949;
-            const firstIFDOffset = view.getUint32(tiffOffset + 4, little);
-            let ifdOffset = tiffOffset + firstIFDOffset;
-            const tags = view.getUint16(ifdOffset, little);
-            ifdOffset += 2;
-            for (let i = 0; i < tags; i++) {
-              const tagOffset = ifdOffset + i * 12;
-              if (view.getUint16(tagOffset, little) === 0x0112) {
-                resolve(view.getUint16(tagOffset + 8, little));
-                return;
-              }
-            }
-            resolve(1); return;
-          } else if ((marker & 0xFF00) !== 0xFF00) {
-            break;
-          } else {
-            offset += view.getUint16(offset, false);
-          }
-        }
-      } catch (e) { /* パース失敗時は補正なしにフォールバック */ }
-      resolve(1);
-    };
-    reader.onerror = () => resolve(1);
-    reader.readAsArrayBuffer(file.slice(0, 128 * 1024));
-  });
-}
-
-function drawResizedJpeg(img, orientation, maxDim, quality) {
-  let width = img.naturalWidth || img.width;
-  let height = img.naturalHeight || img.height;
-  if (width > maxDim || height > maxDim) {
-    if (width > height) { height = Math.round(height * maxDim / width); width = maxDim; }
-    else { width = Math.round(width * maxDim / height); height = maxDim; }
+async function uploadPendingPhotos(spotId) {
+  for (const file of pendingPhotoFiles) {
+    try {
+      const base64 = await resizeImageToBase64(file);
+      await callApi('uploadPhoto', { token: auth.token, spotId, filename: file.name, mimeType: 'image/jpeg', dataBase64: base64 });
+    } catch (e) {
+      console.warn('写真アップロードに失敗しました:', e);
+    }
   }
-
-  const swap = orientation >= 5 && orientation <= 8;
-  const canvas = document.createElement('canvas');
-  canvas.width = swap ? height : width;
-  canvas.height = swap ? width : height;
-  const ctx = canvas.getContext('2d');
-
-  switch (orientation) {
-    case 2: ctx.transform(-1, 0, 0, 1, canvas.width, 0); break;
-    case 3: ctx.transform(-1, 0, 0, -1, canvas.width, canvas.height); break;
-    case 4: ctx.transform(1, 0, 0, -1, 0, canvas.height); break;
-    case 5: ctx.transform(0, 1, 1, 0, 0, 0); break;
-    case 6: ctx.transform(0, 1, -1, 0, canvas.height, 0); break;
-    case 7: ctx.transform(0, -1, -1, 0, canvas.height, canvas.width); break;
-    case 8: ctx.transform(0, -1, 1, 0, 0, canvas.width); break;
-    default: break;
-  }
-
-  ctx.drawImage(img, 0, 0, width, height);
-  return canvas.toDataURL('image/jpeg', quality);
+  pendingPhotoFiles = [];
 }
 
-function toYoutubeEmbed(url) {
+async function handleDeleteExistingPhoto(spotId, fileId) {
+  if (!confirm('この写真を削除しますか？')) return;
   try {
-    const u = new URL(url);
-    let id = null;
-    if (u.hostname.includes('youtu.be')) id = u.pathname.slice(1);
-    else if (u.hostname.includes('youtube.com')) id = u.searchParams.get('v');
-    return id ? `https://www.youtube.com/embed/${id}` : null;
-  } catch (e) { return null; }
-}
-
-async function loadPins() {
-  try {
-    const res = await fetch(API_URL, { method: 'GET' });
-    const data = await res.json();
-    if (data.status !== 'ok') return;
-
-    // 既存マーカーをクリア(ログイン状態変化で編集ボタン表示を切替えるため再描画)
-    map.eachLayer(layer => { if (layer instanceof L.Marker && layer !== selectionMarker) map.removeLayer(layer); });
-
-    data.pins.forEach(pin => {
-      const marker = L.marker([pin.lat, pin.lng]).addTo(map);
-      const container = buildPopupContent(pin);
-      marker.bindPopup(container, { maxWidth: 260 });
-    });
+    const res = await callApi('deletePhoto', { token: auth.token, spotId, fileId });
+    if (!res.ok) { alert('削除に失敗しました。'); return; }
+    const spot = allSpots.find(s => s.id === spotId);
+    if (spot) spot.photos = res.photos;
+    currentEditingSpotPhotosCount = res.photos.length;
+    openEditSpotModal(spotId); // フォームを最新の写真一覧で再描画
+    updateSpotCardInPlace(spotId);
+    refreshOpenPopupContent(spotId);
   } catch (e) {
-    console.error('ピンの読み込みに失敗しました', e);
+    alert('通信エラーが発生しました。');
   }
 }
 
-function buildPopupContent(pin) {
-  const container = document.createElement('div');
+/* =====================================================================
+ * 音声入力（Gemini APIで文字起こし・整形 → 加筆・修正・削除可能なプレビュー）
+ * ===================================================================== */
+let voiceMediaRecorder = null;
+let voiceAudioChunks = [];
+let voiceMaxTimer = null;
 
-  const nick = document.createElement('div');
-  nick.className = 'popup-nickname';
-  nick.textContent = '投稿者: ' + pin.nickname;
-  container.appendChild(nick);
-
-  const embedUrl = toYoutubeEmbed(pin.videoUrl);
-  if (embedUrl) {
-    const iframe = document.createElement('iframe');
-    iframe.width = '220'; iframe.height = '124'; iframe.style.border = '0';
-    iframe.src = embedUrl; iframe.setAttribute('allowfullscreen', '');
-    container.appendChild(iframe);
+async function toggleVoiceRecording() {
+  const btn = document.getElementById('voice-input-btn');
+  const statusEl = document.getElementById('voice-status');
+  if (voiceMediaRecorder && voiceMediaRecorder.state === 'recording') {
+    voiceMediaRecorder.stop();
+    return;
   }
-
-  if (pin.photoUrl) {
-    const photoWrap = document.createElement('div');
-    photoWrap.className = 'popup-photo';
-    const photoImg = document.createElement('img');
-    photoImg.src = pin.photoUrl;
-    photoImg.alt = '投稿された写真';
-    photoImg.loading = 'lazy';
-    photoImg.onclick = () => window.open(pin.photoUrl, '_blank', 'noopener');
-    photoWrap.appendChild(photoImg);
-    container.appendChild(photoWrap);
+  if (!auth.token) { statusEl.textContent = 'ログインすると音声入力を利用できます。'; return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
+    alert('お使いのブラウザは音声入力に対応していません。');
+    return;
   }
-
-  const desc = document.createElement('div');
-  desc.textContent = pin.description; // textContentで安全に挿入
-  container.appendChild(desc);
-
-  const link = document.createElement('a');
-  if (pin.videoUrl) {
-    link.href = pin.videoUrl; link.target = '_blank'; link.rel = 'noopener noreferrer';
-    link.className = 'video-link'; link.textContent = '投稿元を見る ↗';
-    container.appendChild(link);
-  }
-
-  // 編集・削除ボタン(表示はログイン中の全員に出し、権限はサーバー側で最終判定)
-  const actions = document.createElement('div');
-  actions.className = 'popup-actions';
-  const editBtn = document.createElement('button');
-  editBtn.textContent = '編集'; editBtn.className = 'link-btn';
-  editBtn.onclick = () => editPost(pin);
-  const delBtn = document.createElement('button');
-  delBtn.textContent = '削除'; delBtn.className = 'danger';
-  delBtn.onclick = () => deletePost(pin.postId);
-  if (session && session.token) {
-    actions.appendChild(editBtn);
-    actions.appendChild(delBtn);
-    container.appendChild(actions);
-  }
-
-  // ---- コメント欄 ----
-  const commentsWrap = document.createElement('div');
-  commentsWrap.className = 'comments-wrap';
-
-  const commentsTitle = document.createElement('div');
-  commentsTitle.className = 'comments-title';
-  commentsTitle.textContent = `コメント (${pin.comments.length})`;
-  commentsWrap.appendChild(commentsTitle);
-
-  const list = document.createElement('div');
-  list.className = 'comments-list';
-  pin.comments.forEach(c => list.appendChild(buildCommentRow(c, pin.postId)));
-  commentsWrap.appendChild(list);
-
-  if (session && session.token) {
-    const form = document.createElement('div');
-    form.className = 'comment-form';
-    const textarea = document.createElement('textarea');
-    textarea.maxLength = 300;
-    textarea.placeholder = 'コメントを入力...';
-    const btn = document.createElement('button');
-    btn.className = 'link-btn';
-    btn.textContent = 'コメントする';
-    btn.onclick = async () => {
-      const text = textarea.value.trim();
-      if (!text) return;
-      btn.disabled = true;
-      const data = await api('addComment', { token: session.token, postId: pin.postId, comment: text });
-      btn.disabled = false;
-      if (data.status === 'ok') { loadPins(); }
-      else alert(data.message || 'コメントの投稿に失敗しました。');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    voiceAudioChunks = [];
+    voiceMediaRecorder = new MediaRecorder(stream);
+    voiceMediaRecorder.ondataavailable = ev => { if (ev.data.size > 0) voiceAudioChunks.push(ev.data); };
+    voiceMediaRecorder.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      clearTimeout(voiceMaxTimer);
+      btn.textContent = '🎙️ 音声で入力';
+      handleVoiceRecorded();
     };
-    form.appendChild(textarea);
-    form.appendChild(btn);
-    commentsWrap.appendChild(form);
-  } else {
-    const hint = document.createElement('div');
-    hint.className = 'hint';
-    hint.textContent = 'コメントするにはログインしてください。';
-    commentsWrap.appendChild(hint);
+    voiceMediaRecorder.start();
+    btn.textContent = '⏹️ 録音を停止';
+    statusEl.textContent = '録音中…話し終わったら「⏹️録音を停止」を押してください（最長90秒）';
+    voiceMaxTimer = setTimeout(() => {
+      if (voiceMediaRecorder && voiceMediaRecorder.state === 'recording') voiceMediaRecorder.stop();
+    }, 90000);
+  } catch (e) {
+    alert('マイクを使用できませんでした。ブラウザの権限設定をご確認ください。');
   }
-
-  container.appendChild(commentsWrap);
-  return container;
 }
 
-function buildCommentRow(c, postId) {
-  const row = document.createElement('div');
-  row.className = 'comment-row';
-
-  const meta = document.createElement('div');
-  meta.className = 'comment-meta';
-  meta.textContent = c.nickname;
-  row.appendChild(meta);
-
-  const body = document.createElement('div');
-  body.className = 'comment-body';
-  body.textContent = c.comment; // textContentで安全に挿入
-  row.appendChild(body);
-
-  if (session && session.token) {
-    const actions = document.createElement('div');
-    actions.className = 'comment-actions';
-
-    const editBtn = document.createElement('button');
-    editBtn.textContent = '編集'; editBtn.className = 'link-btn';
-    editBtn.onclick = async () => {
-      const newText = prompt('コメントを編集', c.comment);
-      if (newText === null) return;
-      const data = await api('updateComment', { token: session.token, commentId: c.commentId, comment: newText });
-      if (data.status === 'ok') loadPins();
-      else alert(data.message || '編集に失敗しました(権限がない可能性があります)');
-    };
-
-    const delBtn = document.createElement('button');
-    delBtn.textContent = '削除'; delBtn.className = 'danger';
-    delBtn.onclick = async () => {
-      if (!confirm('このコメントを削除しますか?')) return;
-      const data = await api('deleteComment', { token: session.token, commentId: c.commentId });
-      if (data.status === 'ok') loadPins();
-      else alert(data.message || '削除に失敗しました(権限がない可能性があります)');
-    };
-
-    actions.appendChild(editBtn);
-    actions.appendChild(delBtn);
-    row.appendChild(actions);
-  }
-
-  return row;
-}
-
-async function editPost(pin) {
-  const newUrl = prompt('動画URLを編集', pin.videoUrl);
-  if (newUrl === null) return;
-  const newDesc = prompt('説明文を編集(200文字まで)', pin.description);
-  if (newDesc === null) return;
-
-  const data = await api('updatePost', { token: session.token, postId: pin.postId, videoUrl: newUrl, description: newDesc });
-  if (data.status === 'ok') loadPins();
-  else alert(data.message || '編集に失敗しました(権限がない可能性があります)');
-}
-
-async function deletePost(postId) {
-  if (!confirm('この投稿を削除しますか?')) return;
-  const data = await api('deletePost', { token: session.token, postId });
-  if (data.status === 'ok') loadPins();
-  else alert(data.message || '削除に失敗しました(権限がない可能性があります)');
-}
-
-/* ==============================
-   投稿フォーム送信
-   ============================== */
-const form = document.getElementById('postForm');
-const statusEl = document.getElementById('status');
-const submitBtn = document.getElementById('submitBtn');
-
-form.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  statusEl.textContent = ''; statusEl.className = '';
-
-  if (!session || !session.token) {
-    statusEl.textContent = 'ログインしてください。'; statusEl.className = 'error'; return;
-  }
-  if (!selectedLatLng) {
-    statusEl.textContent = '地図をクリックするか、緯度・経度を入力して「この位置を指定」を押してください。'; statusEl.className = 'error'; return;
-  }
-
-  const videoUrl = document.getElementById('videoUrl').value.trim();
-  const description = document.getElementById('description').value.trim();
-  const hp = document.getElementById('hp').value;
-
-  if (!videoUrl && !selectedPhotoDataUrl) {
-    statusEl.textContent = '動画URLまたは写真のどちらかを入力してください。'; statusEl.className = 'error'; return;
-  }
-
-  submitBtn.disabled = true;
-  statusEl.textContent = '送信中...';
-
-  const data = await api('createPost', {
-    token: session.token, lat: selectedLatLng.lat, lng: selectedLatLng.lng, videoUrl, description, hp,
-    photoBase64: selectedPhotoDataUrl || undefined
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
   });
+}
 
-  if (data.status === 'ok') {
-    statusEl.textContent = '投稿しました。'; statusEl.className = 'ok';
-    form.reset();
-    clearSelectedPhoto();
-    if (selectionMarker) { map.removeLayer(selectionMarker); selectionMarker = null; }
-    selectedLatLng = null;
-    setLatlngMsg('');
-    loadPins();
-  } else {
-    statusEl.textContent = data.message || (data.message === 'session expired. please login again.' ? 'セッションが切れました。再ログインしてください。' : '投稿に失敗しました。');
-    statusEl.className = 'error';
-    if (data.message && data.message.indexOf('session') !== -1) clearSession();
+async function handleVoiceRecorded() {
+  const statusEl = document.getElementById('voice-status');
+  if (!statusEl) return; // フォームが閉じられていた場合
+  statusEl.textContent = 'Geminiで文字起こし・整形中…';
+  try {
+    const mimeType = (voiceMediaRecorder && voiceMediaRecorder.mimeType) || 'audio/webm';
+    const blob = new Blob(voiceAudioChunks, { type: mimeType });
+    const base64 = await blobToBase64(blob);
+    const res = await callApi('transcribeVoice', { token: auth.token, mimeType, audioBase64: base64 });
+    if (!res.ok) { statusEl.textContent = '音声の認識に失敗しました。もう一度お試しください。'; return; }
+    const previewWrap = document.getElementById('voice-preview-wrap');
+    const previewText = document.getElementById('voice-preview-text');
+    if (previewWrap && previewText) {
+      previewText.value = res.text;
+      previewWrap.hidden = false;
+    }
+    statusEl.textContent = '';
+  } catch (e) {
+    statusEl.textContent = '通信エラーが発生しました。';
   }
-  submitBtn.disabled = false;
-});
+}
 
-/* ==============================
-   初期化
-   ============================== */
+function applyVoiceText(mode) {
+  const previewText = document.getElementById('voice-preview-text');
+  const desc = document.getElementById('spot-desc');
+  if (!previewText || !desc) return;
+  const text = previewText.value.trim();
+  if (!text) return;
+  desc.value = (mode === 'append' && desc.value.trim()) ? (desc.value.trim() + '\n' + text) : text;
+  discardVoiceText();
+}
+
+function discardVoiceText() {
+  const wrap = document.getElementById('voice-preview-wrap');
+  const previewText = document.getElementById('voice-preview-text');
+  if (wrap) wrap.hidden = true;
+  if (previewText) previewText.value = '';
+}
+
+/* =====================================================================
+ * 会員機能：コメント
+ * ===================================================================== */
+async function loadCommentsIntoPopup(spotId) {
+  const box = document.getElementById('comments-' + spotId);
+  if (!box) return;
+  try {
+    const res = await fetch(CONFIG.gasUrl + '?action=listComments&spotId=' + encodeURIComponent(spotId), { cache: 'no-cache' });
+    const json = await res.json();
+    const box2 = document.getElementById('comments-' + spotId); // ポップアップ再描画対策
+    if (!box2) return;
+    if (!json.ok || json.comments.length === 0) {
+      box2.innerHTML = `<p class="text-gray-400">まだコメントはありません。</p>`;
+      return;
+    }
+    box2.innerHTML = json.comments.map(c => `
+      <div class="comment-item">
+        <div class="flex items-start justify-between gap-2">
+          <div>
+            <p class="font-bold text-pine inline">${esc(c.authorNickname || '会員')}</p>
+            ${c.rating > 0 ? `<span class="text-[11px] text-lantern ml-1" aria-label="評価${c.rating}">${'★'.repeat(c.rating)}${'☆'.repeat(5 - c.rating)}</span>` : ''}
+          </div>
+          ${auth.userId && c.authorId === auth.userId ? `
+          <span class="shrink-0 flex gap-2">
+            <button type="button" class="auth-btn-link !text-[10px]" onclick="handleEditComment('${spotId}','${c.id}')">編集</button>
+            <button type="button" class="auth-btn-link !text-[10px]" style="color:#C4604F" onclick="handleDeleteComment('${spotId}','${c.id}')">削除</button>
+          </span>` : ''}
+        </div>
+        <p id="comment-text-${c.id}" class="text-gray-600 whitespace-pre-wrap leading-relaxed">${esc(c.text)}</p>
+      </div>`).join('');
+  } catch (e) {
+    const box3 = document.getElementById('comments-' + spotId);
+    if (box3) box3.innerHTML = `<p class="text-gray-400">コメントを読み込めませんでした。</p>`;
+  }
+}
+
+/* ⑩ 評価（星）付きコメント */
+function setCommentRating(spotId, val) {
+  const box = document.getElementById('rating-input-' + spotId);
+  if (!box) return;
+  box.dataset.rating = val;
+  box.querySelectorAll('.rating-star').forEach(btn => {
+    const on = Number(btn.dataset.val) <= val;
+    btn.classList.toggle('text-lantern', on);
+    btn.classList.toggle('text-gray-300', !on);
+  });
+}
+
+async function refreshStatsAndPopup(spotId) {
+  await loadSpotStats();
+  refreshOpenPopupContent(spotId);
+  updateSpotCardInPlace(spotId);
+}
+
+async function handleAddComment(spotId) {
+  const input = document.getElementById('comment-input-' + spotId);
+  const text = input.value.trim();
+  if (!text) return;
+  const ratingBox = document.getElementById('rating-input-' + spotId);
+  const rating = ratingBox ? Number(ratingBox.dataset.rating || 0) : 0;
+  input.disabled = true;
+  try {
+    const res = await callApi('addComment', { token: auth.token, spotId, text, rating });
+    if (res.ok) { input.value = ''; await refreshStatsAndPopup(spotId); }
+    else alert('コメントの投稿に失敗しました。');
+  } catch (e) {
+    alert('通信エラーが発生しました。');
+  }
+  input.disabled = false;
+}
+
+async function handleEditComment(spotId, commentId) {
+  const el = document.getElementById('comment-text-' + commentId);
+  const current = el.textContent;
+  const next = prompt('コメントを編集', current);
+  if (next === null || next.trim() === '') return;
+  try {
+    const res = await callApi('updateComment', { token: auth.token, commentId, text: next.trim() });
+    if (res.ok) await refreshStatsAndPopup(spotId);
+    else alert('編集に失敗しました。');
+  } catch (e) {
+    alert('通信エラーが発生しました。');
+  }
+}
+
+async function handleDeleteComment(spotId, commentId) {
+  if (!confirm('このコメントを削除しますか？')) return;
+  try {
+    const res = await callApi('deleteComment', { token: auth.token, commentId });
+    if (res.ok) await refreshStatsAndPopup(spotId);
+    else alert('削除に失敗しました。');
+  } catch (e) {
+    alert('通信エラーが発生しました。');
+  }
+}
+
 renderAuthArea();
-loadPins();
+(async () => {
+  await restoreSession(); // ⑦お気に入りの初期読込より先にログイン状態を復元しておく
+  loadSpots().then(openSpotFromUrl);
+})();
 </script>
 </body>
 </html>
