@@ -1,532 +1,936 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#F2F4F1">
-  <title>レシート家計簿</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MapTube</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root{
+    --ink:#1f2a24;
+    --paper:#f7f5f0;
+    --line:#d8d3c6;
+    --accent:#3a6b52;
+    --accent-soft:#e7efe9;
+    --danger:#a8402f;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; font-family:"Hiragino Sans","Yu Gothic",sans-serif; color:var(--ink); background:var(--paper);}
+  header{
+    padding:12px 18px; border-bottom:1px solid var(--line);
+    display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;
+  }
+  header h1{font-size:18px; margin:0;}
+  #authArea{display:flex; align-items:center; gap:10px; font-size:13px;}
+  #authArea .nickname{font-weight:bold; color:var(--accent);}
+  button.link-btn{
+    background:none; border:1px solid var(--line); border-radius:6px;
+    padding:6px 12px; cursor:pointer; font-size:13px; color:var(--ink);
+  }
+  button.primary{
+    background:var(--accent); color:#fff; border:none; border-radius:6px;
+    padding:9px 22px; font-size:14px; cursor:pointer;
+  }
+  button.primary:disabled{background:#9fb3a8; cursor:not-allowed;}
+  button.danger{background:var(--danger); color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:12px; cursor:pointer;}
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+  #map{width:100%; height:calc(100vh - 210px); min-height:320px;}
 
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            paper: '#F2F4F1',
-            ink:   '#1D2733',
-            ai:    '#2F4B7C',
-            rule:  '#D5DAD4',
-            mute:  '#66707C',
-            shu:   '#B4432F'
-          },
-          fontFamily: {
-            sans:   ['"Zen Kaku Gothic New"', '"Hiragino Sans"', '"Noto Sans JP"', 'sans-serif'],
-            mincho: ['"Shippori Mincho B1"', '"Hiragino Mincho ProN"', '"Yu Mincho"', 'serif']
+  #panel{padding:12px 18px 18px; border-top:1px solid var(--line); background:#fff;}
+  #panel form{display:grid; grid-template-columns:1fr 1fr; gap:8px 12px; max-width:760px;}
+  #panel label{font-size:12px; color:#555; display:block; margin-bottom:2px;}
+  #panel input[type=text], #panel input[type=email], #panel input[type=password],
+  #panel input[type=url], #panel textarea{
+    width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:6px; font-size:14px; background:var(--paper);
+  }
+  #panel textarea{grid-column:1/-1; resize:vertical; min-height:56px;}
+  .full{grid-column:1/-1;}
+  .hint{font-size:12px; color:#777;}
+  #status{font-size:13px; min-height:18px;}
+  #status.error{color:var(--danger);}
+  #status.ok{color:var(--accent);}
+
+  .latlng-row{display:flex; gap:8px; flex-wrap:wrap;}
+  .latlng-row input{flex:1 1 140px; min-width:120px;}
+  .latlng-row button{flex:0 0 auto;}
+  #latlngMsg.error{color:var(--danger);}
+  #latlngMsg.ok{color:var(--accent);}
+
+  .hp-field{position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden;}
+
+  #photoPreviewWrap{display:none; align-items:center; gap:10px; margin-top:4px;}
+  #photoPreview{max-width:120px; max-height:120px; border-radius:6px; border:1px solid var(--line); display:block;}
+  #photoRemoveBtn{font-size:12px;}
+  .photo-processing{font-size:12px; color:#777;}
+
+  .popup-photo{margin-top:6px;}
+  .popup-photo img{max-width:220px; max-height:220px; border-radius:6px; display:block; cursor:zoom-in;}
+
+  /* モーダル(ログイン/登録/パスワード変更) */
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(0,0,0,.4);
+    display:flex; align-items:center; justify-content:center; z-index:1000;
+  }
+  .modal-box{
+    background:#fff; border-radius:10px; padding:24px; width:min(90vw, 380px);
+  }
+  .modal-box h2{margin-top:0; font-size:16px;}
+  .modal-box label{font-size:12px; color:#555; display:block; margin:10px 0 4px;}
+  .modal-box input{
+    width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:6px; font-size:14px;
+  }
+  .modal-actions{display:flex; justify-content:space-between; align-items:center; margin-top:16px;}
+  .modal-switch{font-size:12px; color:var(--accent); background:none; border:none; cursor:pointer; text-decoration:underline;}
+
+  .password-field{position:relative;}
+  .password-field input{padding-right:56px;}
+  .password-toggle{
+    position:absolute; right:4px; top:50%; transform:translateY(-50%);
+    background:none; border:none; font-size:11px; color:var(--accent);
+    cursor:pointer; padding:4px 8px;
+  }
+
+  .leaflet-popup-content{font-size:13px; line-height:1.6; max-width:240px;}
+  .leaflet-popup-content .video-link{display:inline-block; margin-top:6px; color:var(--accent); font-weight:bold; text-decoration:none;}
+  .popup-nickname{font-size:12px; color:#777; margin-bottom:4px;}
+  .popup-actions{display:flex; gap:6px; margin-top:8px;}
+
+  .comments-wrap{margin-top:10px; padding-top:8px; border-top:1px solid var(--line);}
+  .comments-title{font-size:12px; font-weight:bold; color:#555; margin-bottom:4px;}
+  .comments-list{max-height:140px; overflow-y:auto; margin-bottom:6px;}
+  .comment-row{padding:4px 0; border-bottom:1px dashed var(--line);}
+  .comment-meta{font-size:11px; color:var(--accent); font-weight:bold;}
+  .comment-body{font-size:12px; white-space:pre-wrap; word-break:break-word;}
+  .comment-actions{display:flex; gap:6px; margin-top:2px;}
+  .comment-actions button{font-size:11px; padding:2px 8px;}
+  .comment-form textarea{
+    width:100%; font-size:12px; padding:6px; border:1px solid var(--line); border-radius:6px;
+    resize:vertical; min-height:40px; margin-bottom:4px;
+  }
+  .comment-form button{font-size:12px;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>MapTube</h1>
+  <div id="authArea"></div>
+</header>
+
+<div id="map"></div>
+
+<div id="panel">
+  <div id="postFormWrap" style="display:none;">
+    <form id="postForm" autocomplete="off">
+      <div class="full">
+        <label>位置(地図をクリック、または緯度・経度を入力して「この位置を指定」)</label>
+        <div class="latlng-row">
+          <input type="text" id="latInput" inputmode="decimal" placeholder="緯度 例: 35.68124">
+          <input type="text" id="lngInput" inputmode="decimal" placeholder="経度 例: 139.76712">
+          <button type="button" class="link-btn" id="latlngApplyBtn">この位置を指定</button>
+        </div>
+        <div class="hint">Googleマップ等でコピーした「35.68124, 139.76712」の形式を緯度欄に貼り付けても自動で分けて入力されます。</div>
+        <div class="hint" id="latlngMsg"></div>
+      </div>
+      <div>
+        <label for="videoUrl">動画URL (YouTube / X / Instagram / TikTok)(写真のみの場合は空でも可)</label>
+        <input type="url" id="videoUrl" maxlength="300" placeholder="https://youtube.com/...">
+      </div>
+      <div>
+        <label for="description">説明文(200文字まで)</label>
+      </div>
+      <textarea id="description" maxlength="200" placeholder="動画の内容や見どころを書いてください" class="full"></textarea>
+      <div class="full">
+        <label for="photoInput">写真(動画URLが無い場合は必須・自動で適正サイズに縮小されます)</label>
+        <input type="file" id="photoInput" accept="image/*">
+        <div id="photoPreviewWrap">
+          <img id="photoPreview" alt="選択した写真のプレビュー">
+          <button type="button" class="link-btn" id="photoRemoveBtn" onclick="clearSelectedPhoto()">写真を削除</button>
+        </div>
+        <div class="photo-processing" id="photoProcessing"></div>
+      </div>
+      <div class="hp-field" aria-hidden="true">
+        <label>この欄は入力しないでください</label>
+        <input type="text" id="hp" tabindex="-1" autocomplete="off">
+      </div>
+      <div class="hint full">
+        投稿することで<a href="disclaimer.html" target="_blank">免責事項</a>に同意したものとみなします。
+      </div>
+      <button type="submit" class="primary" id="submitBtn">この内容で投稿する</button>
+      <div id="status" class="full"></div>
+    </form>
+  </div>
+  <div id="loginPrompt" class="hint">投稿するには<button class="link-btn" onclick="showLogin()">ログイン</button>または<button class="link-btn" onclick="showRegister()">新規登録</button>してください。</div>
+</div>
+
+<!-- ログインモーダル -->
+<div class="modal-overlay" id="loginModal" style="display:none;">
+  <div class="modal-box">
+    <h2>ログイン</h2>
+    <label for="loginEmail">登録メールアドレス</label>
+    <input type="email" id="loginEmail">
+    <label for="loginPassword">パスワード</label>
+    <div class="password-field">
+      <input type="password" id="loginPassword">
+      <button type="button" class="password-toggle" onclick="togglePasswordVisibility('loginPassword', this)">表示</button>
+    </div>
+    <div id="loginStatus" style="font-size:12px; color:var(--danger); margin-top:8px;"></div>
+    <div class="modal-actions">
+      <button class="modal-switch" onclick="closeModals(); showRegister();">新規登録はこちら</button>
+      <button class="primary" onclick="doLogin()">ログイン</button>
+    </div>
+    <div style="text-align:right; margin-top:8px;">
+      <button class="link-btn" onclick="closeModals()">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 新規登録モーダル -->
+<div class="modal-overlay" id="registerModal" style="display:none;">
+  <div class="modal-box">
+    <h2>新規登録</h2>
+    <label for="regEmail">メールアドレス</label>
+    <input type="email" id="regEmail">
+    <label for="regNickname">ニックネーム(地図上に表示されます)</label>
+    <input type="text" id="regNickname" maxlength="30">
+    <div class="hp-field" aria-hidden="true">
+      <label>この欄は入力しないでください</label>
+      <input type="text" id="regHp" tabindex="-1" autocomplete="off">
+    </div>
+    <div id="registerStatus" style="font-size:12px; margin-top:8px;"></div>
+    <div class="modal-actions">
+      <button class="modal-switch" onclick="closeModals(); showLogin();">ログインはこちら</button>
+      <button class="primary" onclick="doRegister()">登録する</button>
+    </div>
+    <div style="text-align:right; margin-top:8px;">
+      <button class="link-btn" onclick="closeModals()">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- ニックネーム変更モーダル -->
+<div class="modal-overlay" id="nicknameModal" style="display:none;">
+  <div class="modal-box">
+    <h2>ニックネーム変更</h2>
+    <p class="hint">既存の投稿・コメントの表示名も新しいニックネームに更新されます。</p>
+    <label for="nicknameInput">新しいニックネーム</label>
+    <input type="text" id="nicknameInput" maxlength="30">
+    <div id="nicknameStatus" style="font-size:12px; margin-top:8px;"></div>
+    <div class="modal-actions">
+      <span></span>
+      <button class="primary" onclick="doUpdateNickname()">変更する</button>
+    </div>
+    <div style="text-align:right; margin-top:8px;">
+      <button class="link-btn" onclick="closeModals()">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- パスワード変更モーダル(初回ログイン時は強制表示) -->
+<div class="modal-overlay" id="pwModal" style="display:none;">
+  <div class="modal-box">
+    <h2 id="pwModalTitle">パスワード変更</h2>
+    <p class="hint" id="pwModalHint"></p>
+    <label for="oldPassword">現在のパスワード</label>
+    <div class="password-field">
+      <input type="password" id="oldPassword">
+      <button type="button" class="password-toggle" onclick="togglePasswordVisibility('oldPassword', this)">表示</button>
+    </div>
+    <label for="newPassword">新しいパスワード(8文字以上)</label>
+    <div class="password-field">
+      <input type="password" id="newPassword">
+      <button type="button" class="password-toggle" onclick="togglePasswordVisibility('newPassword', this)">表示</button>
+    </div>
+    <div id="pwStatus" style="font-size:12px; margin-top:8px;"></div>
+    <div class="modal-actions">
+      <span></span>
+      <button class="primary" onclick="doChangePassword()">変更する</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ==============================
+   設定
+   ============================== */
+const API_URL = 'https://script.google.com/macros/s/AKfycbyc1y8KtB7EO3H37HLBsMZHB7Foie6qEzyTdSyQO50PI999Za68pEOC62o47ar880nG/exec'; // デプロイ後のURLに置き換える
+
+/* ==============================
+   セッション状態(localStorageに保持)
+   ============================== */
+let session = JSON.parse(localStorage.getItem('vpm_session') || 'null');
+// session = { token, nickname, role }
+
+function saveSession(s) {
+  session = s;
+  localStorage.setItem('vpm_session', JSON.stringify(s));
+  renderAuthArea();
+}
+function clearSession() {
+  session = null;
+  localStorage.removeItem('vpm_session');
+  renderAuthArea();
+}
+
+async function api(action, payload, timeoutMs = 45000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(Object.assign({ action }, payload)),
+      signal: controller.signal
+    });
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch (parseErr) {
+      console.error('APIレスポンスの解析に失敗しました', text);
+      return { status: 'error', message: 'サーバーの応答が不正でした。時間をおいて再度お試しください。' };
+    }
+  } catch (err) {
+    console.error('API通信エラー', err);
+    if (err.name === 'AbortError') {
+      return { status: 'error', message: '通信がタイムアウトしました。電波状況を確認するか、写真を選び直して再度お試しください。' };
+    }
+    return { status: 'error', message: '通信エラーが発生しました。時間をおいて再度お試しください。' };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/* ==============================
+   認証UI描画
+   ============================== */
+function renderAuthArea() {
+  const el = document.getElementById('authArea');
+  const formWrap = document.getElementById('postFormWrap');
+  const loginPrompt = document.getElementById('loginPrompt');
+
+  if (session && session.token) {
+    el.innerHTML =
+      `<span class="nickname">${escapeForDisplay(session.nickname)}</span> さん` +
+      `<button class="link-btn" onclick="showNicknameEdit()">ニックネーム変更</button>` +
+      `<button class="link-btn" onclick="showChangePassword(false)">パスワード変更</button>` +
+      `<button class="link-btn" onclick="doLogout()">ログアウト</button>`;
+    formWrap.style.display = 'block';
+    loginPrompt.style.display = 'none';
+  } else {
+    el.innerHTML = '';
+    formWrap.style.display = 'none';
+    loginPrompt.style.display = 'block';
+  }
+}
+function escapeForDisplay(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+/* ==============================
+   モーダル制御
+   ============================== */
+function togglePasswordVisibility(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.textContent = '非表示';
+  } else {
+    input.type = 'password';
+    btn.textContent = '表示';
+  }
+}
+
+function closeModals() {
+  document.getElementById('loginModal').style.display = 'none';
+  document.getElementById('registerModal').style.display = 'none';
+  document.getElementById('pwModal').style.display = 'none';
+  document.getElementById('nicknameModal').style.display = 'none';
+  // パスワード表示状態をリセット(モーダルを開き直した時に前回の表示状態が残らないように)
+  document.querySelectorAll('.password-field input').forEach(input => { input.type = 'password'; });
+  document.querySelectorAll('.password-toggle').forEach(btn => { btn.textContent = '表示'; });
+}
+function showLogin() { closeModals(); document.getElementById('loginModal').style.display = 'flex'; }
+function showRegister() { closeModals(); document.getElementById('registerModal').style.display = 'flex'; }
+function showNicknameEdit() {
+  closeModals();
+  document.getElementById('nicknameInput').value = session.nickname;
+  document.getElementById('nicknameStatus').textContent = '';
+  document.getElementById('nicknameModal').style.display = 'flex';
+}
+function showChangePassword(forced) {
+  closeModals();
+  document.getElementById('pwModalHint').textContent = forced
+    ? '初回ログインです。仮パスワードから新しいパスワードに変更してください。'
+    : '';
+  document.getElementById('pwModal').style.display = 'flex';
+}
+
+async function doUpdateNickname() {
+  const newNickname = document.getElementById('nicknameInput').value.trim();
+  const statusEl = document.getElementById('nicknameStatus');
+  if (!newNickname) { statusEl.style.color = 'var(--danger)'; statusEl.textContent = 'ニックネームを入力してください。'; return; }
+  statusEl.style.color = '#555';
+  statusEl.textContent = '処理中...';
+
+  const data = await api('updateNickname', { token: session.token, nickname: newNickname });
+  if (data.status === 'ok') {
+    saveSession({ token: session.token, nickname: data.nickname, role: session.role });
+    statusEl.style.color = 'var(--accent)';
+    statusEl.textContent = 'ニックネームを変更しました。';
+    loadPins();
+    setTimeout(closeModals, 800);
+  } else {
+    statusEl.style.color = 'var(--danger)';
+    statusEl.textContent = data.message || '変更に失敗しました。';
+  }
+}
+
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const statusEl = document.getElementById('loginStatus');
+  statusEl.textContent = 'ログイン中...';
+
+  const data = await api('login', { email, password });
+  if (data.status === 'ok') {
+    saveSession({ token: data.token, nickname: data.nickname, role: data.role });
+    closeModals();
+    if (data.mustChangePassword) showChangePassword(true);
+    loadPins();
+  } else {
+    statusEl.textContent = data.message || 'ログインに失敗しました。';
+  }
+}
+
+async function doRegister() {
+  const email = document.getElementById('regEmail').value.trim();
+  const nickname = document.getElementById('regNickname').value.trim();
+  const hp = document.getElementById('regHp').value;
+  const statusEl = document.getElementById('registerStatus');
+  statusEl.className = ''; statusEl.textContent = '登録中...';
+
+  const data = await api('register', { email, nickname, hp });
+  if (data.status === 'ok') {
+    statusEl.style.color = 'var(--accent)';
+    statusEl.textContent = data.message + ' メール内の仮パスワードでログインしてください。';
+  } else {
+    statusEl.style.color = 'var(--danger)';
+    statusEl.textContent = data.message || '登録に失敗しました。';
+  }
+}
+
+async function doLogout() {
+  if (session && session.token) await api('logout', { token: session.token });
+  clearSession();
+}
+
+async function doChangePassword() {
+  const oldPassword = document.getElementById('oldPassword').value;
+  const newPassword = document.getElementById('newPassword').value;
+  const statusEl = document.getElementById('pwStatus');
+  statusEl.textContent = '処理中...';
+
+  const data = await api('changePassword', { token: session.token, oldPassword, newPassword });
+  if (data.status === 'ok') {
+    statusEl.style.color = 'var(--accent)';
+    statusEl.textContent = 'パスワードを変更しました。安全のため再度ログインしてください。';
+    // パスワード変更時はサーバー側で全セッションが無効化されるため、フロントのセッションも破棄する
+    clearSession();
+    setTimeout(() => { closeModals(); showLogin(); }, 1200);
+  } else {
+    statusEl.style.color = 'var(--danger)';
+    statusEl.textContent = data.message || '変更に失敗しました。';
+  }
+}
+
+/* ==============================
+   地図
+   ============================== */
+const map = L.map('map').setView([35.681236, 139.767125], 13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors', maxZoom: 19
+}).addTo(map);
+
+let selectedLatLng = null;
+let selectionMarker = null;
+const latInput = document.getElementById('latInput');
+const lngInput = document.getElementById('lngInput');
+const latlngMsg = document.getElementById('latlngMsg');
+
+function setLatlngMsg(text, cls) {
+  latlngMsg.textContent = text || '';
+  latlngMsg.className = 'hint' + (cls ? ' ' + cls : '');
+}
+
+// 位置を確定(地図クリック・数値入力の共通処理)
+function setSelectedLocation(lat, lng, panTo) {
+  const latlng = L.latLng(lat, lng);
+  selectedLatLng = latlng;
+  latInput.value = lat.toFixed(5);
+  lngInput.value = lng.toFixed(5);
+  if (selectionMarker) selectionMarker.setLatLng(latlng);
+  else selectionMarker = L.marker(latlng, { opacity: 0.7 }).addTo(map);
+  if (panTo) map.setView(latlng, Math.max(map.getZoom(), 15));
+}
+
+// 全角数字・全角記号を半角に
+function toHalfWidth(str) {
+  return String(str)
+    .replace(/[０-９．－，＋]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+    .replace(/[、　]/g, ch => ch === '、' ? ',' : ' ')
+    .replace(/[ー−–—]/g, '-')
+    .trim();
+}
+
+// 「35.68, 139.76」「35.68 139.76」形式を分解
+function splitLatLngText(text) {
+  const m = toHalfWidth(text).match(/^\s*([-+]?\d+(?:\.\d+)?)\s*[,\s]\s*([-+]?\d+(?:\.\d+)?)\s*$/);
+  return m ? { lat: m[1], lng: m[2] } : null;
+}
+
+// 緯度欄に「緯度, 経度」を貼り付けたら自動で分割
+latInput.addEventListener('input', () => {
+  const pair = splitLatLngText(latInput.value);
+  if (pair) {
+    latInput.value = pair.lat;
+    lngInput.value = pair.lng;
+  }
+});
+
+function applyLatLngInput() {
+  const latStr = toHalfWidth(latInput.value);
+  const lngStr = toHalfWidth(lngInput.value);
+  if (!latStr || !lngStr) {
+    setLatlngMsg('緯度と経度の両方を入力してください。', 'error'); return;
+  }
+  const numRe = /^[-+]?\d+(\.\d+)?$/;
+  if (!numRe.test(latStr) || !numRe.test(lngStr)) {
+    setLatlngMsg('緯度・経度は数値で入力してください(例: 35.68124)。', 'error'); return;
+  }
+  const lat = Number(latStr), lng = Number(lngStr);
+  if (lat < -90 || lat > 90) { setLatlngMsg('緯度は -90 〜 90 の範囲で入力してください。', 'error'); return; }
+  if (lng < -180 || lng > 180) { setLatlngMsg('経度は -180 〜 180 の範囲で入力してください。', 'error'); return; }
+  setSelectedLocation(lat, lng, true);
+  setLatlngMsg('位置を指定しました。', 'ok');
+}
+
+document.getElementById('latlngApplyBtn').addEventListener('click', applyLatLngInput);
+[latInput, lngInput].forEach(el => el.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); applyLatLngInput(); }
+}));
+
+map.on('click', (e) => {
+  setSelectedLocation(e.latlng.lat, e.latlng.lng, false);
+  setLatlngMsg('');
+});
+
+/* ==============================
+   写真選択・自動リサイズ
+   ============================== */
+let selectedPhotoDataUrl = null; // リサイズ後のJPEG data URL(送信用)
+const MAX_ORIGINAL_PHOTO_BYTES = 20 * 1024 * 1024; // 20MB(選択直後の元ファイルサイズの上限)
+const TARGET_PHOTO_BYTES = 700 * 1024; // 送信data URLの目標上限(約700KB)
+
+const photoInput = document.getElementById('photoInput');
+const photoPreviewWrap = document.getElementById('photoPreviewWrap');
+const photoPreview = document.getElementById('photoPreview');
+const photoProcessing = document.getElementById('photoProcessing');
+
+photoInput.addEventListener('change', async () => {
+  const file = photoInput.files && photoInput.files[0];
+  if (!file) return;
+
+  if (!file.type.startsWith('image/')) {
+    photoProcessing.textContent = '画像ファイルを選択してください。';
+    photoInput.value = '';
+    return;
+  }
+  if (file.size > MAX_ORIGINAL_PHOTO_BYTES) {
+    photoProcessing.textContent = 'ファイルサイズが大きすぎます(20MBまで)。';
+    photoInput.value = '';
+    return;
+  }
+
+  photoProcessing.textContent = '写真を処理しています...';
+  try {
+    selectedPhotoDataUrl = await resizeImageToDataUrl(file);
+    photoPreview.src = selectedPhotoDataUrl;
+    photoPreviewWrap.style.display = 'flex';
+    photoProcessing.textContent = '';
+  } catch (e) {
+    console.error('写真の処理に失敗しました', e);
+    photoProcessing.textContent = '写真の処理に失敗しました。別の写真をお試しください。';
+    selectedPhotoDataUrl = null;
+  }
+});
+
+function clearSelectedPhoto() {
+  selectedPhotoDataUrl = null;
+  photoInput.value = '';
+  photoPreviewWrap.style.display = 'none';
+  photoPreview.src = '';
+  photoProcessing.textContent = '';
+}
+
+// ファイルをJPEGに変換しつつ、長辺1280px程度・約700KB以下を目安に段階的に縮小する
+async function resizeImageToDataUrl(file) {
+  const [dataUrl, orientation] = await Promise.all([readFileAsDataUrl(file), getExifOrientation(file)]);
+  const img = await loadImage(dataUrl);
+
+  let maxDim = 1280;
+  let quality = 0.82;
+  let result = drawResizedJpeg(img, orientation, maxDim, quality);
+
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const approxBytes = Math.ceil(result.length * 3 / 4);
+    if (approxBytes <= TARGET_PHOTO_BYTES || (maxDim <= 640 && quality <= 0.5)) break;
+    quality = Math.max(0.5, quality - 0.15);
+    maxDim = Math.max(640, Math.round(maxDim * 0.85));
+    result = drawResizedJpeg(img, orientation, maxDim, quality);
+  }
+  return result;
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target.result);
+    reader.onerror = () => reject(new Error('file read failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('image load failed'));
+    img.src = src;
+  });
+}
+
+// スマートフォン写真の向き情報(EXIF Orientation)を読み取る。取得できない場合は1(補正なし)を返す。
+function getExifOrientation(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const view = new DataView(e.target.result);
+        if (view.getUint16(0, false) !== 0xFFD8) { resolve(1); return; }
+        const length = view.byteLength;
+        let offset = 2;
+        while (offset < length) {
+          const marker = view.getUint16(offset, false);
+          offset += 2;
+          if (marker === 0xFFE1) {
+            if (view.getUint32(offset + 2, false) !== 0x45786966) { resolve(1); return; }
+            const tiffOffset = offset + 8;
+            const little = view.getUint16(tiffOffset, false) === 0x4949;
+            const firstIFDOffset = view.getUint32(tiffOffset + 4, little);
+            let ifdOffset = tiffOffset + firstIFDOffset;
+            const tags = view.getUint16(ifdOffset, little);
+            ifdOffset += 2;
+            for (let i = 0; i < tags; i++) {
+              const tagOffset = ifdOffset + i * 12;
+              if (view.getUint16(tagOffset, little) === 0x0112) {
+                resolve(view.getUint16(tagOffset + 8, little));
+                return;
+              }
+            }
+            resolve(1); return;
+          } else if ((marker & 0xFF00) !== 0xFF00) {
+            break;
+          } else {
+            offset += view.getUint16(offset, false);
           }
         }
-      }
+      } catch (e) { /* パース失敗時は補正なしにフォールバック */ }
+      resolve(1);
     };
-  </script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    reader.onerror = () => resolve(1);
+    reader.readAsArrayBuffer(file.slice(0, 128 * 1024));
+  });
+}
 
-  <style>
-    :root { color-scheme: light; }
-    html { -webkit-text-size-adjust: 100%; }
-    body {
-      background: #F2F4F1;
-      color: #1D2733;
-      padding-bottom: env(safe-area-inset-bottom, 0px);
-    }
-    .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+function drawResizedJpeg(img, orientation, maxDim, quality) {
+  let width = img.naturalWidth || img.width;
+  let height = img.naturalHeight || img.height;
+  if (width > maxDim || height > maxDim) {
+    if (width > height) { height = Math.round(height * maxDim / width); width = maxDim; }
+    else { width = Math.round(width * maxDim / height); height = maxDim; }
+  }
 
-    :focus-visible { outline: 2px solid #2F4B7C; outline-offset: 2px; border-radius: 4px; }
+  const swap = orientation >= 5 && orientation <= 8;
+  const canvas = document.createElement('canvas');
+  canvas.width = swap ? height : width;
+  canvas.height = swap ? width : height;
+  const ctx = canvas.getContext('2d');
 
-    /* ---- レシート用紙 ---- */
-    .receipt-shadow { filter: drop-shadow(0 1px 1px rgba(29,39,51,.10)) drop-shadow(0 6px 14px rgba(29,39,51,.07)); }
-    .receipt {
-      --tooth: 7px;
-      background: #fff;
-      padding: 34px 22px 38px;
-      -webkit-mask:
-        conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) top / calc(2 * var(--tooth)) 51% repeat-x,
-        conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / calc(2 * var(--tooth)) 51% repeat-x;
-              mask:
-        conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) top / calc(2 * var(--tooth)) 51% repeat-x,
-        conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / calc(2 * var(--tooth)) 51% repeat-x;
-    }
-    .cut { border-top: 1.5px dashed #C9CFC8; }
-    .rc-input {
-      width: 100%;
-      background: transparent;
-      border: 0;
-      border-bottom: 1px dashed #C9CFC8;
-      padding: 6px 2px;
-      border-radius: 0;
-    }
-    .rc-input:focus { outline: none; border-bottom: 1.5px solid #2F4B7C; }
-    select.rc-input { appearance: none; -webkit-appearance: none; background-image: linear-gradient(45deg, transparent 50%, #66707C 50%), linear-gradient(135deg, #66707C 50%, transparent 50%); background-position: calc(100% - 12px) 55%, calc(100% - 7px) 55%; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 22px; }
+  switch (orientation) {
+    case 2: ctx.transform(-1, 0, 0, 1, canvas.width, 0); break;
+    case 3: ctx.transform(-1, 0, 0, -1, canvas.width, canvas.height); break;
+    case 4: ctx.transform(1, 0, 0, -1, 0, canvas.height); break;
+    case 5: ctx.transform(0, 1, 1, 0, 0, 0); break;
+    case 6: ctx.transform(0, 1, -1, 0, canvas.height, 0); break;
+    case 7: ctx.transform(0, -1, -1, 0, canvas.height, canvas.width); break;
+    case 8: ctx.transform(0, -1, 1, 0, 0, canvas.width); break;
+    default: break;
+  }
 
-    /* ---- 共通フィールド ---- */
-    .field {
-      width: 100%;
-      background: #fff;
-      border: 1px solid #D5DAD4;
-      border-radius: 8px;
-      padding: 11px 12px;
-    }
-    .field:focus { outline: none; border-color: #2F4B7C; box-shadow: 0 0 0 3px rgba(47,75,124,.15); }
+  ctx.drawImage(img, 0, 0, width, height);
+  return canvas.toDataURL('image/jpeg', quality);
+}
 
-    .seg button[aria-pressed="true"] { background: #1D2733; color: #fff; }
+function toYoutubeEmbed(url) {
+  try {
+    const u = new URL(url);
+    let id = null;
+    if (u.hostname.includes('youtu.be')) id = u.pathname.slice(1);
+    else if (u.hostname.includes('youtube.com')) id = u.searchParams.get('v');
+    return id ? `https://www.youtube.com/embed/${id}` : null;
+  } catch (e) { return null; }
+}
 
-    .tab[aria-current="page"] { color: #1D2733; border-color: #1D2733; }
+async function loadPins() {
+  try {
+    const res = await fetch(API_URL, { method: 'GET' });
+    const data = await res.json();
+    if (data.status !== 'ok') return;
 
-    /* ---- 月別の表 ---- */
-    #trend-table th, #trend-table td { padding: 9px 12px; white-space: nowrap; }
-    #trend-table thead th { font-weight: 500; color: #66707C; font-size: 12px; border-bottom: 1px solid #D5DAD4; text-align: right; }
-    #trend-table tbody tr + tr td, #trend-table tbody tr + tr th { border-top: 1px solid #EEF0ED; }
-    #trend-table tfoot td, #trend-table tfoot th { border-top: 1.5px solid #1D2733; font-weight: 700; }
-    #trend-table .col-name { position: sticky; left: 0; background: #fff; text-align: left; z-index: 1; box-shadow: 1px 0 0 #D5DAD4; }
-    #trend-table .col-total { background: #F6F7F5; }
-    #trend-table .col-now { background: #F1F4FA; }
-    #trend-table td.zero { color: #B5BBC2; }
-    #trend-table tfoot tr + tr td, #trend-table tfoot tr + tr th { border-top: 1px solid #EEF0ED; }
-    #trend-table tfoot .row-income td, #trend-table tfoot .row-income th { font-weight: 500; }
+    // 既存マーカーをクリア(ログイン状態変化で編集ボタン表示を切替えるため再描画)
+    map.eachLayer(layer => { if (layer instanceof L.Marker && layer !== selectionMarker) map.removeLayer(layer); });
 
-    @media (prefers-reduced-motion: no-preference) {
-      .print-in { animation: print-in .45s cubic-bezier(.2,.7,.2,1) both; }
-      @keyframes print-in {
-        from { clip-path: inset(0 0 100% 0); transform: translateY(-6px); }
-        to   { clip-path: inset(0 0 0 0);    transform: none; }
-      }
-      .spin { animation: spin 1s linear infinite; }
-      @keyframes spin { to { transform: rotate(360deg); } }
-    }
-  </style>
-</head>
-<body class="font-sans antialiased min-h-screen">
+    data.pins.forEach(pin => {
+      const marker = L.marker([pin.lat, pin.lng]).addTo(map);
+      const container = buildPopupContent(pin);
+      marker.bindPopup(container, { maxWidth: 260 });
+    });
+  } catch (e) {
+    console.error('ピンの読み込みに失敗しました', e);
+  }
+}
 
-  <!-- ============ ログイン / 新規登録 / パスワードを忘れた方 ============ -->
-  <section id="view-auth" class="hidden min-h-screen flex items-center justify-center px-5 py-10">
-    <div class="w-full max-w-sm">
-      <h1 class="font-mincho text-[2.1rem] leading-tight tracking-wide">レシート家計簿</h1>
-      <p class="text-mute mt-2 leading-relaxed">レシートを撮るだけで、日付・お店・金額・カテゴリが入力されます。</p>
+function buildPopupContent(pin) {
+  const container = document.createElement('div');
 
-      <div id="auth-tabs" class="seg mt-8 grid grid-cols-2 rounded-lg border border-rule bg-white p-1 text-sm" role="group" aria-label="ログインまたは新規登録">
-        <button type="button" data-auth-mode="login" class="rounded-md py-2 font-medium" aria-pressed="true">ログイン</button>
-        <button type="button" data-auth-mode="register" class="rounded-md py-2 font-medium" aria-pressed="false">新規登録</button>
-      </div>
+  const nick = document.createElement('div');
+  nick.className = 'popup-nickname';
+  nick.textContent = '投稿者: ' + pin.nickname;
+  container.appendChild(nick);
 
-      <div id="auth-notice" class="hidden mt-5 rounded-lg border border-ai/30 bg-white p-4 text-sm leading-relaxed" role="status"></div>
+  const embedUrl = toYoutubeEmbed(pin.videoUrl);
+  if (embedUrl) {
+    const iframe = document.createElement('iframe');
+    iframe.width = '220'; iframe.height = '124'; iframe.style.border = '0';
+    iframe.src = embedUrl; iframe.setAttribute('allowfullscreen', '');
+    container.appendChild(iframe);
+  }
 
-      <!-- ログイン -->
-      <form id="form-login" class="mt-5 space-y-4" novalidate>
-        <label class="block">
-          <span class="text-sm text-mute">メールアドレス</span>
-          <input id="login-email" type="email" autocomplete="email" required class="field mt-1">
-        </label>
-        <div>
-          <label for="login-password" class="text-sm text-mute">パスワード（仮パスワードも可）</label>
-          <div class="relative mt-1">
-            <input id="login-password" type="password" autocomplete="current-password" required class="field pr-16">
-            <button type="button" data-pw-toggle="login-password" class="pw-toggle absolute inset-y-0 right-0 px-3 text-sm text-ai" aria-pressed="false" aria-label="パスワードを表示する">表示</button>
-          </div>
-        </div>
-        <p id="login-error" class="hidden text-sm text-shu" role="alert"></p>
-        <button id="login-submit" type="submit" class="w-full rounded-lg bg-ink text-white py-3 font-medium disabled:opacity-60">ログイン</button>
-        <p class="text-center">
-          <button type="button" data-auth-mode="forgot" class="text-sm text-ai underline underline-offset-4">パスワードを忘れた方</button>
-        </p>
-      </form>
+  if (pin.photoUrl) {
+    const photoWrap = document.createElement('div');
+    photoWrap.className = 'popup-photo';
+    const photoImg = document.createElement('img');
+    photoImg.src = pin.photoUrl;
+    photoImg.alt = '投稿された写真';
+    photoImg.loading = 'lazy';
+    photoImg.onclick = () => window.open(pin.photoUrl, '_blank', 'noopener');
+    photoWrap.appendChild(photoImg);
+    container.appendChild(photoWrap);
+  }
 
-      <!-- 新規登録 -->
-      <form id="form-register" class="hidden mt-5 space-y-4" novalidate>
-        <p class="text-sm leading-relaxed">登録するメールアドレスに<strong>仮パスワード</strong>をお送りします。仮パスワードでログインしたあと、ご自分のパスワードを決めていただきます。</p>
-        <label class="block">
-          <span class="text-sm text-mute">メールアドレス</span>
-          <input id="register-email" type="email" autocomplete="email" required class="field mt-1">
-        </label>
-        <p id="register-error" class="hidden text-sm text-shu" role="alert"></p>
-        <button id="register-submit" type="submit" class="w-full rounded-lg bg-ink text-white py-3 font-medium disabled:opacity-60">仮パスワードを送信</button>
-      </form>
+  const desc = document.createElement('div');
+  desc.textContent = pin.description; // textContentで安全に挿入
+  container.appendChild(desc);
 
-      <!-- パスワードを忘れた方 -->
-      <form id="form-forgot" class="hidden mt-5 space-y-4" novalidate>
-        <h2 class="text-lg font-bold">パスワードを忘れた方</h2>
-        <p class="text-sm leading-relaxed">登録したメールアドレスに<strong>仮パスワード</strong>をお送りします。仮パスワードでログインしたあと、新しいパスワードを設定してください。今のパスワードを思い出した場合は、そのまま使えます。</p>
-        <label class="block">
-          <span class="text-sm text-mute">登録したメールアドレス</span>
-          <input id="forgot-email" type="email" autocomplete="email" required class="field mt-1">
-        </label>
-        <p id="forgot-error" class="hidden text-sm text-shu" role="alert"></p>
-        <button id="forgot-submit" type="submit" class="w-full rounded-lg bg-ink text-white py-3 font-medium disabled:opacity-60">仮パスワードを送信</button>
-        <p class="text-center">
-          <button type="button" data-auth-mode="login" class="text-sm text-ai underline underline-offset-4">ログインに戻る</button>
-        </p>
-      </form>
-    </div>
-  </section>
+  const link = document.createElement('a');
+  if (pin.videoUrl) {
+    link.href = pin.videoUrl; link.target = '_blank'; link.rel = 'noopener noreferrer';
+    link.className = 'video-link'; link.textContent = '投稿元を見る ↗';
+    container.appendChild(link);
+  }
 
-  <!-- ============ パスワード設定（仮パスワード後の再設定 / 通常の変更） ============ -->
-  <section id="view-password" class="hidden min-h-screen flex items-center justify-center px-5 py-10">
-    <div class="w-full max-w-sm">
-      <h1 id="pw-title" class="font-mincho text-[1.8rem] leading-tight">新しいパスワードの設定</h1>
-      <p id="pw-lead" class="text-mute mt-2 leading-relaxed text-sm"></p>
+  // 編集・削除ボタン(表示はログイン中の全員に出し、権限はサーバー側で最終判定)
+  const actions = document.createElement('div');
+  actions.className = 'popup-actions';
+  const editBtn = document.createElement('button');
+  editBtn.textContent = '編集'; editBtn.className = 'link-btn';
+  editBtn.onclick = () => editPost(pin);
+  const delBtn = document.createElement('button');
+  delBtn.textContent = '削除'; delBtn.className = 'danger';
+  delBtn.onclick = () => deletePost(pin.postId);
+  if (session && session.token) {
+    actions.appendChild(editBtn);
+    actions.appendChild(delBtn);
+    container.appendChild(actions);
+  }
 
-      <form id="form-password" class="mt-7 space-y-4" novalidate>
-        <input type="text" id="pw-username" autocomplete="username" class="hidden" tabindex="-1" aria-hidden="true">
+  // ---- コメント欄 ----
+  const commentsWrap = document.createElement('div');
+  commentsWrap.className = 'comments-wrap';
 
-        <div id="pw-current-wrap">
-          <label for="pw-current" class="text-sm text-mute">現在のパスワード</label>
-          <div class="relative mt-1">
-            <input id="pw-current" type="password" autocomplete="current-password" class="field pr-16">
-            <button type="button" data-pw-toggle="pw-current" class="pw-toggle absolute inset-y-0 right-0 px-3 text-sm text-ai" aria-pressed="false" aria-label="パスワードを表示する">表示</button>
-          </div>
-        </div>
+  const commentsTitle = document.createElement('div');
+  commentsTitle.className = 'comments-title';
+  commentsTitle.textContent = `コメント (${pin.comments.length})`;
+  commentsWrap.appendChild(commentsTitle);
 
-        <div>
-          <label for="pw-new" class="text-sm text-mute">新しいパスワード</label>
-          <div class="relative mt-1">
-            <input id="pw-new" type="password" autocomplete="new-password" minlength="8" class="field pr-16" aria-describedby="pw-rule">
-            <button type="button" data-pw-toggle="pw-new" class="pw-toggle absolute inset-y-0 right-0 px-3 text-sm text-ai" aria-pressed="false" aria-label="パスワードを表示する">表示</button>
-          </div>
-          <p id="pw-rule" class="text-xs text-mute mt-1">8文字以上で、英字と数字を両方含めてください。</p>
-        </div>
+  const list = document.createElement('div');
+  list.className = 'comments-list';
+  pin.comments.forEach(c => list.appendChild(buildCommentRow(c, pin.postId)));
+  commentsWrap.appendChild(list);
 
-        <div>
-          <label for="pw-confirm" class="text-sm text-mute">新しいパスワード（確認のためもう一度）</label>
-          <div class="relative mt-1">
-            <input id="pw-confirm" type="password" autocomplete="new-password" minlength="8" class="field pr-16">
-            <button type="button" data-pw-toggle="pw-confirm" class="pw-toggle absolute inset-y-0 right-0 px-3 text-sm text-ai" aria-pressed="false" aria-label="パスワードを表示する">表示</button>
-          </div>
-        </div>
+  if (session && session.token) {
+    const form = document.createElement('div');
+    form.className = 'comment-form';
+    const textarea = document.createElement('textarea');
+    textarea.maxLength = 300;
+    textarea.placeholder = 'コメントを入力...';
+    const btn = document.createElement('button');
+    btn.className = 'link-btn';
+    btn.textContent = 'コメントする';
+    btn.onclick = async () => {
+      const text = textarea.value.trim();
+      if (!text) return;
+      btn.disabled = true;
+      const data = await api('addComment', { token: session.token, postId: pin.postId, comment: text });
+      btn.disabled = false;
+      if (data.status === 'ok') { loadPins(); }
+      else alert(data.message || 'コメントの投稿に失敗しました。');
+    };
+    form.appendChild(textarea);
+    form.appendChild(btn);
+    commentsWrap.appendChild(form);
+  } else {
+    const hint = document.createElement('div');
+    hint.className = 'hint';
+    hint.textContent = 'コメントするにはログインしてください。';
+    commentsWrap.appendChild(hint);
+  }
 
-        <p id="pw-error" class="hidden text-sm text-shu" role="alert"></p>
-        <button id="pw-submit" type="submit" class="w-full rounded-lg bg-ink text-white py-3 font-medium disabled:opacity-60">パスワードを設定</button>
-        <p class="text-center">
-          <button type="button" id="pw-back" class="text-sm text-ai underline underline-offset-4">家計簿に戻る</button>
-          <button type="button" id="pw-logout" class="text-sm text-mute underline underline-offset-4">ログアウト</button>
-        </p>
-      </form>
-    </div>
-  </section>
+  container.appendChild(commentsWrap);
+  return container;
+}
 
-  <!-- ============ アプリ本体 ============ -->
-  <div id="app-shell" class="hidden">
-    <header class="sticky top-0 z-20 bg-paper/95 backdrop-blur border-b border-rule" style="padding-top: env(safe-area-inset-top, 0px);">
-      <div class="max-w-3xl mx-auto px-4 flex items-center justify-between h-14">
-        <p class="font-mincho text-lg">レシート家計簿</p>
-        <div class="flex items-center gap-3 text-sm">
-          <span id="user-email" class="hidden sm:inline text-mute truncate max-w-[14rem]"></span>
-          <button id="btn-change-password" type="button" class="text-mute hover:text-ink underline underline-offset-4">パスワード変更</button>
-          <button id="btn-logout" type="button" class="text-mute hover:text-ink underline underline-offset-4">ログアウト</button>
-        </div>
-      </div>
-      <nav class="max-w-3xl mx-auto px-4 flex gap-5 sm:gap-6 text-sm overflow-x-auto whitespace-nowrap" aria-label="画面の切り替え">
-        <button type="button" data-nav="dashboard" class="tab pb-2 border-b-2 border-transparent text-mute font-medium">家計のようす</button>
-        <button type="button" data-nav="add" class="tab pb-2 border-b-2 border-transparent text-mute font-medium">支出を記録</button>
-        <button type="button" data-nav="income" class="tab pb-2 border-b-2 border-transparent text-mute font-medium">収入</button>
-        <button type="button" id="btn-open-categories" class="pb-2 border-b-2 border-transparent text-mute font-medium hover:text-ink">種別の設定</button>
-      </nav>
-    </header>
+function buildCommentRow(c, postId) {
+  const row = document.createElement('div');
+  row.className = 'comment-row';
 
-    <main class="max-w-3xl mx-auto px-4 pb-24">
+  const meta = document.createElement('div');
+  meta.className = 'comment-meta';
+  meta.textContent = c.nickname;
+  row.appendChild(meta);
 
-      <!-- ---------- ダッシュボード ---------- -->
-      <section id="view-dashboard" class="hidden pt-6">
-        <div class="-mx-4 px-4 overflow-x-auto">
-          <div class="seg inline-flex rounded-lg border border-rule bg-white p-0.5 text-xs whitespace-nowrap" role="group" aria-label="集計期間">
-            <button type="button" data-period="month" class="rounded-md px-3 py-1.5" aria-pressed="true">今月</button>
-            <button type="button" data-period="lastMonth" class="rounded-md px-3 py-1.5" aria-pressed="false">先月</button>
-            <button type="button" data-period="3" class="rounded-md px-3 py-1.5" aria-pressed="false">3か月</button>
-            <button type="button" data-period="6" class="rounded-md px-3 py-1.5" aria-pressed="false">6か月</button>
-            <button type="button" data-period="12" class="rounded-md px-3 py-1.5" aria-pressed="false">12か月</button>
-            <button type="button" data-period="year" class="rounded-md px-3 py-1.5" aria-pressed="false">今年</button>
-            <button type="button" data-period="custom" class="rounded-md px-3 py-1.5" aria-pressed="false">期間を指定</button>
-          </div>
-        </div>
-        <form id="period-custom" class="hidden mt-3 flex flex-wrap items-center gap-2 text-sm" novalidate>
-          <label class="sr-only" for="period-from">開始月</label>
-          <input id="period-from" type="month" class="field w-40 py-2 num">
-          <span class="text-mute">〜</span>
-          <label class="sr-only" for="period-to">終了月</label>
-          <input id="period-to" type="month" class="field w-40 py-2 num">
-          <button type="submit" class="rounded-lg bg-ink px-4 py-2 font-medium text-white">表示</button>
-        </form>
+  const body = document.createElement('div');
+  body.className = 'comment-body';
+  body.textContent = c.comment; // textContentで安全に挿入
+  row.appendChild(body);
 
-        <div class="mt-7">
-          <p id="dash-month-label" class="text-mute">今月の支出</p>
-          <p class="mt-1 flex items-baseline gap-1">
-            <span class="font-mincho text-2xl">¥</span>
-            <span id="dash-total" class="font-mincho num text-[3.25rem] leading-none tracking-tight">0</span>
-          </p>
-          <p id="dash-compare" class="mt-3 text-sm text-mute"></p>
+  if (session && session.token) {
+    const actions = document.createElement('div');
+    actions.className = 'comment-actions';
 
-          <dl class="mt-6 grid grid-cols-3 max-w-lg rounded-lg border border-rule bg-white text-sm">
-            <div class="px-3 py-3 sm:px-4">
-              <dt class="text-xs text-mute">収入</dt>
-              <dd id="dash-income" class="num mt-1 font-medium">¥0</dd>
-            </div>
-            <div class="px-3 py-3 sm:px-4 border-l border-rule">
-              <dt class="text-xs text-mute">支出</dt>
-              <dd id="dash-expense" class="num mt-1 font-medium">¥0</dd>
-            </div>
-            <div class="px-3 py-3 sm:px-4 border-l border-rule">
-              <dt class="text-xs text-mute">収支</dt>
-              <dd id="dash-balance" class="num mt-1 text-lg font-bold">¥0</dd>
-            </div>
-          </dl>
-          <p id="dash-average" class="hidden mt-2 text-xs text-mute num"></p>
-          <p id="dash-income-hint" class="hidden mt-2 text-xs text-mute">
-            <span id="dash-income-hint-text">この期間の収入がまだ入力されていません。</span>
-            <button type="button" data-nav="income" class="text-ai underline underline-offset-4">収入を入力する</button>
-          </p>
-        </div>
+    const editBtn = document.createElement('button');
+    editBtn.textContent = '編集'; editBtn.className = 'link-btn';
+    editBtn.onclick = async () => {
+      const newText = prompt('コメントを編集', c.comment);
+      if (newText === null) return;
+      const data = await api('updateComment', { token: session.token, commentId: c.commentId, comment: newText });
+      if (data.status === 'ok') loadPins();
+      else alert(data.message || '編集に失敗しました(権限がない可能性があります)');
+    };
 
-        <div class="mt-10 grid md:grid-cols-[minmax(0,15rem)_1fr] gap-8 items-center">
-          <div class="relative h-56 md:h-60">
-            <canvas id="chart-donut" aria-label="期間の種別ごとの内訳"></canvas>
-            <p id="donut-empty" class="hidden absolute inset-0 flex items-center justify-center text-center text-sm text-mute px-6">この期間の支出の記録はまだありません。</p>
-          </div>
-          <ul id="dash-legend" class="divide-y divide-rule text-sm"></ul>
-        </div>
+    const delBtn = document.createElement('button');
+    delBtn.textContent = '削除'; delBtn.className = 'danger';
+    delBtn.onclick = async () => {
+      if (!confirm('このコメントを削除しますか?')) return;
+      const data = await api('deleteComment', { token: session.token, commentId: c.commentId });
+      if (data.status === 'ok') loadPins();
+      else alert(data.message || '削除に失敗しました(権限がない可能性があります)');
+    };
 
-        <div class="mt-14">
-          <div class="flex items-end justify-between gap-4">
-            <h2 class="text-lg font-bold">月ごとの推移</h2>
-            <div class="seg grid grid-cols-3 rounded-lg border border-rule bg-white p-0.5 text-xs" role="group" aria-label="推移の表示期間">
-              <button type="button" data-months="6" class="rounded-md px-3 py-1.5" aria-pressed="true">6か月</button>
-              <button type="button" data-months="12" class="rounded-md px-3 py-1.5" aria-pressed="false">12か月</button>
-              <button type="button" data-months="24" class="rounded-md px-3 py-1.5" aria-pressed="false">24か月</button>
-            </div>
-          </div>
-          <div class="mt-4 h-72 bg-white rounded-lg border border-rule p-3">
-            <canvas id="chart-trend" aria-label="カテゴリ別の月次推移"></canvas>
-          </div>
+    actions.appendChild(editBtn);
+    actions.appendChild(delBtn);
+    row.appendChild(actions);
+  }
 
-          <div class="mt-4 overflow-x-auto rounded-lg border border-rule bg-white">
-            <table id="trend-table" class="w-full border-collapse text-sm">
-              <caption class="sr-only">種別ごと・月ごとの支出額</caption>
-              <thead></thead>
-              <tbody></tbody>
-              <tfoot></tfoot>
-            </table>
-          </div>
-          <p class="mt-2 text-xs text-mute">表が横に長いときは、左右にスクロールできます。品目ごとの種別で振り分けた金額です。</p>
-        </div>
+  return row;
+}
 
-        <div class="mt-14">
-          <div class="flex items-end justify-between">
-            <h2 class="text-lg font-bold">最近の明細</h2>
-            <p id="list-count" class="text-xs text-mute"></p>
-          </div>
-          <ul id="expense-list" class="mt-3 border-t border-rule"></ul>
-          <div id="list-empty" class="hidden py-10 text-center">
-            <p class="text-mute">まだ支出が記録されていません。</p>
-            <button type="button" data-nav="add" class="mt-4 rounded-lg bg-ink text-white px-5 py-2.5 text-sm font-medium">最初の支出を記録する</button>
-          </div>
-          <button id="btn-more" type="button" class="hidden mt-4 w-full rounded-lg border border-rule bg-white py-2.5 text-sm">さらに表示</button>
-        </div>
-      </section>
+async function editPost(pin) {
+  const newUrl = prompt('動画URLを編集', pin.videoUrl);
+  if (newUrl === null) return;
+  const newDesc = prompt('説明文を編集(200文字まで)', pin.description);
+  if (newDesc === null) return;
 
-      <!-- ---------- 収入 ---------- -->
-      <section id="view-income" class="hidden pt-8">
-        <div class="flex flex-wrap items-end justify-between gap-4">
-          <h2 class="text-lg font-bold">収入</h2>
-          <div class="flex items-center gap-1">
-            <button type="button" id="inc-prev" class="rounded-md border border-rule bg-white px-3 py-2 text-sm" aria-label="前の月">‹</button>
-            <label class="sr-only" for="inc-month">表示する月</label>
-            <input id="inc-month" type="month" class="field w-44 py-2 num">
-            <button type="button" id="inc-next" class="rounded-md border border-rule bg-white px-3 py-2 text-sm" aria-label="次の月">›</button>
-          </div>
-        </div>
+  const data = await api('updatePost', { token: session.token, postId: pin.postId, videoUrl: newUrl, description: newDesc });
+  if (data.status === 'ok') loadPins();
+  else alert(data.message || '編集に失敗しました(権限がない可能性があります)');
+}
 
-        <dl class="mt-5 grid grid-cols-3 rounded-lg border border-rule bg-white text-sm">
-          <div class="px-3 py-3 sm:px-4">
-            <dt class="text-xs text-mute">収入</dt>
-            <dd id="inc-sum-income" class="num mt-1 font-medium">¥0</dd>
-          </div>
-          <div class="px-3 py-3 sm:px-4 border-l border-rule">
-            <dt class="text-xs text-mute">支出</dt>
-            <dd id="inc-sum-expense" class="num mt-1 font-medium">¥0</dd>
-          </div>
-          <div class="px-3 py-3 sm:px-4 border-l border-rule">
-            <dt id="inc-sum-label" class="text-xs text-mute">収支</dt>
-            <dd id="inc-sum-balance" class="num mt-1 text-lg font-bold">¥0</dd>
-          </div>
-        </dl>
+async function deletePost(postId) {
+  if (!confirm('この投稿を削除しますか?')) return;
+  const data = await api('deletePost', { token: session.token, postId });
+  if (data.status === 'ok') loadPins();
+  else alert(data.message || '削除に失敗しました(権限がない可能性があります)');
+}
 
-        <ul id="inc-list" class="mt-6 border-t border-rule"></ul>
-        <div id="inc-empty" class="hidden py-6 text-center">
-          <p class="text-mute text-sm">この月の収入はまだ登録されていません。</p>
-          <button type="button" id="inc-copy-prev" class="mt-3 rounded-lg border border-ink bg-white px-4 py-2 text-sm font-medium">先月の収入をコピーする</button>
-        </div>
+/* ==============================
+   投稿フォーム送信
+   ============================== */
+const form = document.getElementById('postForm');
+const statusEl = document.getElementById('status');
+const submitBtn = document.getElementById('submitBtn');
 
-        <form id="inc-form" class="mt-6 rounded-lg border border-rule bg-white p-4 sm:p-5" novalidate>
-          <p id="inc-form-title" class="font-bold">収入を追加</p>
-          <input type="hidden" id="inc-id">
-          <div class="mt-3 grid gap-3 sm:grid-cols-[1fr_12rem]">
-            <label class="block">
-              <span class="text-sm text-mute">種類</span>
-              <input id="inc-source" type="text" list="inc-source-list" maxlength="30" placeholder="例：給与、年金" class="field mt-1">
-              <datalist id="inc-source-list"></datalist>
-            </label>
-            <label class="block">
-              <span class="text-sm text-mute">金額（円）</span>
-              <input id="inc-amount" type="number" inputmode="numeric" min="0" step="1" class="field mt-1 num text-right">
-            </label>
-          </div>
-          <label class="mt-3 block">
-            <span class="text-sm text-mute">メモ</span>
-            <input id="inc-memo" type="text" maxlength="200" placeholder="任意" class="field mt-1">
-          </label>
-          <p id="inc-error" class="hidden mt-3 text-sm text-shu" role="alert"></p>
-          <div class="mt-4 flex justify-end gap-2">
-            <button type="button" id="inc-cancel" class="hidden rounded-lg border border-rule px-4 py-2.5 text-sm">やめる</button>
-            <button type="submit" id="inc-save" class="rounded-lg bg-ink px-5 py-2.5 text-sm font-medium text-white disabled:opacity-60">追加する</button>
-          </div>
-        </form>
-      </section>
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  statusEl.textContent = ''; statusEl.className = '';
 
-      <!-- ---------- 記録・編集 ---------- -->
-      <section id="view-add" class="hidden pt-8">
-        <h2 id="add-title" class="text-lg font-bold">支出を記録</h2>
+  if (!session || !session.token) {
+    statusEl.textContent = 'ログインしてください。'; statusEl.className = 'error'; return;
+  }
+  if (!selectedLatLng) {
+    statusEl.textContent = '地図をクリックするか、緯度・経度を入力して「この位置を指定」を押してください。'; statusEl.className = 'error'; return;
+  }
 
-        <div id="mode-switch" class="seg mt-4 grid grid-cols-2 rounded-lg border border-rule bg-white p-1 text-sm max-w-xs" role="group" aria-label="記録のしかた">
-          <button type="button" data-mode="receipt" class="rounded-md py-2 font-medium" aria-pressed="true">レシートから</button>
-          <button type="button" data-mode="manual" class="rounded-md py-2 font-medium" aria-pressed="false">手入力</button>
-        </div>
+  const videoUrl = document.getElementById('videoUrl').value.trim();
+  const description = document.getElementById('description').value.trim();
+  const hp = document.getElementById('hp').value;
 
-        <!-- レシート取り込み -->
-        <div id="receipt-pane" class="mt-6">
-          <div class="rounded-lg border-2 border-dashed border-rule bg-white/60 p-5 flex flex-col sm:flex-row gap-5 items-center">
-            <img id="receipt-thumb" alt="選択したレシート" class="hidden w-24 h-32 object-cover rounded border border-rule bg-white">
-            <div class="flex-1 text-center sm:text-left">
-              <p class="font-medium">レシートを撮影するか、画像を選んでください</p>
-              <p class="text-sm text-mute mt-1">レシート全体が写るように、明るい場所で撮ると正確に読み取れます。</p>
-              <div class="mt-4 flex flex-wrap gap-3 justify-center sm:justify-start">
-                <label class="cursor-pointer rounded-lg bg-ink text-white px-4 py-2.5 text-sm font-medium focus-within:ring-2 focus-within:ring-ai">
-                  カメラで撮る
-                  <input id="file-camera" type="file" accept="image/*" capture="environment" class="sr-only">
-                </label>
-                <label class="cursor-pointer rounded-lg border border-ink px-4 py-2.5 text-sm font-medium focus-within:ring-2 focus-within:ring-ai">
-                  画像を選ぶ
-                  <input id="file-library" type="file" accept="image/jpeg,image/png,image/*" class="sr-only">
-                </label>
-              </div>
-            </div>
-          </div>
-          <p id="analyze-warning" class="hidden mt-3 text-sm text-shu" role="status"></p>
-        </div>
+  if (!videoUrl && !selectedPhotoDataUrl) {
+    statusEl.textContent = '動画URLまたは写真のどちらかを入力してください。'; statusEl.className = 'error'; return;
+  }
 
-        <!-- 入力フォーム（レシート用紙） -->
-        <div id="entry-wrap" class="hidden mt-8 max-w-md mx-auto receipt-shadow">
-          <form id="entry-form" class="receipt" novalidate>
-            <input type="hidden" id="f-id">
-            <input type="hidden" id="f-image-url">
+  submitBtn.disabled = true;
+  statusEl.textContent = '送信中...';
 
-            <label class="block text-center">
-              <span class="sr-only">店舗名・支払先</span>
-              <input id="f-store" type="text" maxlength="100" placeholder="店舗名・支払先"
-                     class="rc-input text-center text-xl font-bold tracking-wide">
-            </label>
+  const data = await api('createPost', {
+    token: session.token, lat: selectedLatLng.lat, lng: selectedLatLng.lng, videoUrl, description, hp,
+    photoBase64: selectedPhotoDataUrl || undefined
+  });
 
-            <div class="mt-5 grid grid-cols-2 gap-4 text-sm">
-              <label class="block">
-                <span class="text-mute text-xs">日付</span>
-                <input id="f-date" type="date" required class="rc-input num">
-              </label>
-              <label class="block">
-                <span class="text-mute text-xs">カテゴリ（全体）</span>
-                <select id="f-category" class="rc-input"></select>
-              </label>
-            </div>
+  if (data.status === 'ok') {
+    statusEl.textContent = '投稿しました。'; statusEl.className = 'ok';
+    form.reset();
+    clearSelectedPhoto();
+    if (selectionMarker) { map.removeLayer(selectionMarker); selectionMarker = null; }
+    selectedLatLng = null;
+    setLatlngMsg('');
+    loadPins();
+  } else {
+    statusEl.textContent = data.message || (data.message === 'session expired. please login again.' ? 'セッションが切れました。再ログインしてください。' : '投稿に失敗しました。');
+    statusEl.className = 'error';
+    if (data.message && data.message.indexOf('session') !== -1) clearSession();
+  }
+  submitBtn.disabled = false;
+});
 
-            <div id="items-section" class="mt-6">
-              <div class="cut"></div>
-              <div class="flex items-center justify-between mt-3">
-                <p class="text-xs text-mute">品目と種別</p>
-                <button type="button" id="btn-add-item" class="text-xs text-ai underline underline-offset-4">品目を追加</button>
-              </div>
-              <p class="text-[11px] text-mute mt-1 leading-relaxed">品目ごとに種別（カテゴリ）を選べます。グラフは種別ごとに振り分けて集計します。</p>
-              <div id="items-wrap" class="mt-2 divide-y divide-dashed divide-rule"></div>
-              <div id="items-breakdown" class="hidden mt-3 text-xs space-y-1" aria-live="polite"></div>
-              <div class="mt-3 flex flex-wrap gap-x-4 gap-y-2">
-                <button type="button" id="btn-sum-items" class="text-xs text-ai underline underline-offset-4">品目の合計を金額に反映</button>
-                <button type="button" id="btn-items-all" class="text-xs text-ai underline underline-offset-4">全品目の種別を全体カテゴリにそろえる</button>
-              </div>
-            </div>
-
-            <div class="cut mt-6"></div>
-            <label class="mt-4 flex items-baseline justify-between gap-4">
-              <span class="font-bold">合計</span>
-              <span class="flex items-baseline gap-1 w-44">
-                <span class="font-mincho text-lg">¥</span>
-                <input id="f-amount" type="number" inputmode="numeric" min="0" step="1" required
-                       class="rc-input num text-right text-2xl font-bold">
-              </span>
-            </label>
-
-            <label class="block mt-6">
-              <span class="text-mute text-xs">メモ</span>
-              <textarea id="f-memo" rows="2" maxlength="500" class="rc-input resize-none text-sm" placeholder="任意"></textarea>
-            </label>
-
-            <p id="f-image-link-wrap" class="hidden mt-3 text-xs">
-              <a id="f-image-link" href="#" target="_blank" rel="noopener" class="text-ai underline underline-offset-4">保存したレシート画像を開く</a>
-            </p>
-
-            <p id="entry-error" class="hidden mt-4 text-sm text-shu" role="alert"></p>
-
-            <div class="cut mt-6"></div>
-            <div class="mt-6 flex gap-3">
-              <button type="button" id="btn-cancel" class="flex-1 rounded-lg border border-rule py-3 text-sm">やめる</button>
-              <button type="submit" id="btn-save" class="flex-[2] rounded-lg bg-ink text-white py-3 font-medium disabled:opacity-60">この内容で登録</button>
-            </div>
-          </form>
-        </div>
-      </section>
-    </main>
-  </div>
-
-  <!-- 種別（カテゴリ）の設定 -->
-  <dialog id="cat-dialog" class="w-[min(32rem,calc(100vw-1.5rem))] max-h-[88vh] overflow-y-auto rounded-xl bg-white p-0 text-ink shadow-2xl backdrop:bg-ink/40">
-    <div class="p-5 sm:p-6">
-      <div class="flex items-center justify-between gap-4">
-        <h2 class="text-lg font-bold">種別の設定</h2>
-        <button type="button" id="cat-close" class="rounded-md border border-rule px-3 py-1.5 text-sm">閉じる</button>
-      </div>
-      <p class="mt-2 text-xs text-mute leading-relaxed">名前を変えると、登録済みの支出の種別も新しい名前に置き換わります。「その他」は削除と名前の変更ができません。</p>
-
-      <ul id="cat-list" class="mt-4 border-y border-rule divide-y divide-rule"></ul>
-
-      <form id="cat-add-form" class="mt-5" novalidate>
-        <p class="text-sm font-medium">種別を追加</p>
-        <div class="mt-2 flex items-center gap-2">
-          <input id="cat-add-color" type="color" value="#5B82B8" class="h-10 w-12 shrink-0 cursor-pointer rounded border border-rule bg-white p-1" aria-label="新しい種別の色">
-          <input id="cat-add-name" type="text" maxlength="20" placeholder="例：医療費" class="field min-w-0 flex-1" aria-label="新しい種別の名前">
-          <button type="submit" id="cat-add-submit" class="shrink-0 rounded-lg bg-ink px-4 py-2.5 text-sm font-medium text-white">追加</button>
-        </div>
-      </form>
-
-      <p id="cat-error" class="hidden mt-3 text-sm text-shu" role="alert"></p>
-    </div>
-  </dialog>
-
-  <!-- 読み込み中 -->
-  <div id="overlay" class="hidden fixed inset-0 z-50 bg-paper/85 backdrop-blur-sm flex items-center justify-center" aria-live="polite">
-    <div class="text-center px-6">
-      <div class="spin mx-auto h-9 w-9 rounded-full border-[3px] border-rule border-t-ink"></div>
-      <p id="overlay-text" class="mt-4 font-medium">読み込んでいます…</p>
-    </div>
-  </div>
-
-  <!-- 通知 -->
-  <div id="toast" class="hidden fixed left-1/2 -translate-x-1/2 bottom-6 z-50 max-w-[90vw] rounded-lg px-4 py-3 text-sm shadow-lg" role="status" aria-live="polite"></div>
-
-  <script src="app.js"></script>
+/* ==============================
+   初期化
+   ============================== */
+renderAuthArea();
+loadPins();
+</script>
 </body>
 </html>
