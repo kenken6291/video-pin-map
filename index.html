@@ -72,6 +72,27 @@
   }
   .leaflet-popup-content { margin: 14px 16px; min-width: 220px; }
 
+  /* 閉じるボタン(×)を大きく・押しやすく。画面端ギリギリで押しにくい/見えにくい問題の対策 */
+  .leaflet-popup-close-button {
+    top: 6px !important;
+    right: 6px !important;
+    width: 30px !important;
+    height: 30px !important;
+    line-height: 28px !important;
+    font-size: 20px !important;
+    font-weight: bold;
+    text-align: center;
+    color: #16352B !important;
+    background: #fff;
+    border: 1.5px solid rgba(22,53,43,.15);
+    border-radius: 999px;
+    box-shadow: 0 2px 6px rgba(14,31,26,.2);
+  }
+  .leaflet-popup-close-button:hover {
+    background: #F4F1E8;
+    color: #16352B !important;
+  }
+
   /* スマホのボトムシート(z-1100)の下にポップアップが隠れて「一瞬出てすぐ消える」ように
      見えてしまう不具合の対策：Leafletのポップアップ/マーカーをシートより手前に表示する */
   .leaflet-popup-pane, .leaflet-marker-pane, .leaflet-tooltip-pane {
@@ -1026,6 +1047,7 @@ function popupAutoPanOptions() {
     autoPanPaddingTopLeft: [16, Math.round(topReserved)],
     autoPanPaddingBottomRight: [16, Math.round(bottomReserved)],
     maxHeight: Math.round(availableH),
+    maxWidth: Math.min(340, window.innerWidth - 32), // 画面端すれすれにならないよう左右に余白を確保
   };
 }
 
